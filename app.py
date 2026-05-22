@@ -1,19 +1,39 @@
 import streamlit as st
+from streamlit_calendar import calendar
 from supabase import create_client
+import pandas as pd
 
-# 깃허브 Secrets에서 값을 불러옵니다.
+# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
+supabase = create_client(url, key)
 
-# 연결 테스트
-try:
-    supabase = create_client(url, key)
-    st.title("연결 테스트 성공! 🎉")
-    st.write("Supabase 프로젝트와 성공적으로 연결되었습니다.")
-    
-    # 데이터가 있는지 확인
-    response = supabase.table("product_master").select("*").limit(5).execute()
-    st.write("product_master 테이블 샘플 데이터:")
-    st.dataframe(response.data)
-except Exception as e:
-    st.error(f"연결 실패: {e}")
+st.set_page_config(layout="wide")
+st.title("🏭 생산 계획 스케줄러")
+
+# 1. 설비 정보 가져오기 (리소스)
+# product_master에서 설비 데이터를 추출하는 로직입니다.
+# 일단 테스트로 고정 리소스를 먼저 설정합니다.
+resources = [
+    {"id": "P100", "title": "과립공정 P100"},
+    {"id": "트레이1호", "title": "건조공정 트레이1호"},
+    {"id": "PM1000", "title": "혼합공정 PM1000"}
+]
+
+# 2. 캘린더 설정
+calendar_options = {
+    "editable": True,
+    "selectable": True,
+    "headerToolbar": {
+        "left": "prev,next today",
+        "center": "title",
+        "right": "resourceTimelineDay,resourceTimelineWeek"
+    },
+    "initialView": "resourceTimelineDay",
+    "resources": resources,
+}
+
+# 3. 캘린더 표시
+state = calendar(events=[], options=calendar_options)
+
+st.write("블록을 드래그해서 일정을 변경해 보세요!")
