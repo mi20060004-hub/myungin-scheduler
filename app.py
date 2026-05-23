@@ -3,17 +3,38 @@ from streamlit_calendar import calendar
 from supabase import create_client
 import pandas as pd
 
-# 페이지 레이아웃 설정
 st.set_page_config(layout="wide")
 
-# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
+# 팝업 함수 (제품 선택 및 제조번호 입력)
+@st.dialog("생산 계획 등록")
+def add_schedule_dialog(date, resource_id):
+    # product_master에서 제품명 가져오기
+    products = supabase.table("product_master").select("product_name").execute().data
+    product_list = [p["product_name"] for p in products]
+
+    with st.form("schedule_form"):
+        selected_product = st.selectbox("제품명 선택", product_list)
+        lot_number = st.text_input("제조번호 입력")
+        submitted = st.form_submit_button("저장")
+        
+        if submitted:
+            new_event = {
+                "resourceId": resource_id,
+                "title": f"{selected_product} ({lot_number})",
+                "start": date,
+                "end": date
+            }
+            supabase.table("production_schedule").insert(new_event).execute()
+            st.success("등록 완료!")
+            st.rerun()
+
 st.title("🏭 생산 계획 스케줄러")
 
-# 1. 설비 리소스 설정 (보내주신 설비 목록 반영)
+# 리소스 목록
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -30,35 +51,28 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 2. 캘린더 옵션 설정
 calendar_options = {
-    "editable": True,
-    "selectable": True,
-    "headerToolbar": {
-        "left": "prev,next today",
-        "center": "title",
-        "right": "resourceTimelineMonth"
-    },
+    "selectable": True, # 날짜 선택 가능
+    "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
     "locale": "ko",
     "resourceAreaHeaderContent": "설비명",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
-    "resourceAreaWidth": "20%",
-    "slotMinWidth": 100,
 }
 
-# 3. 데이터 불러오기
-try:
-    response = supabase.table("production_schedule").select("*").execute()
-    events = response.data
-except Exception as e:
-    events = []
-    st.error(f"데이터를 불러오는 중 오류 발생: {e}")
+# 데이터 로드
+events = supabase.table("production_schedule").select("*").execute().data
 
-# 4. 캘린더 표시
+# 캘린더 표시
 state = calendar(events=events, options=calendar_options)
 
-st.write("---")
-st.write("💡 모든 설비 리스트가 등록되었습니다!")
+# 클릭 이벤트 처리
+if state.get("eventClick"):
+    pass # 기존 일정 수정은 추후 추가
+elif state.get("select"):
+    # 날짜와 리소스를 클릭했을 때 팝업 호출
+    clicked_date = state["select"]["startStr"]
+    clicked_resource = state["select"].get("resourceId")
+    add_schedule_dialog(clicked_date, clicked_resource)
