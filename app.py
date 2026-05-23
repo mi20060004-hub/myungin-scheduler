@@ -26,7 +26,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 4. 캘린더 옵션
+# 4. 캘린더 옵션 (드래그 옵션 명시)
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -36,43 +36,41 @@ calendar_options = {
     "height": "auto",
     "resourceAreaWidth": "20%",
     "slotMinWidth": 100,
-    "editable": True,
+    "editable": True,         # 드래그 가능
+    "droppable": True,        # 드롭 가능
     "selectable": True,
 }
 
-# 5. 데이터 조회 (핵심: DB의 id를 명시적으로 가져옴)
+# 5. 데이터 조회
 try:
-    # select("*")는 모든 컬럼을 가져오며, DB의 id값이 반드시 포함됨
     response = supabase.table("production_schedule").select("id, title, start, end, resourceId").execute()
-    # 캘린더 라이브러리는 'id'라는 키값이 있어야 드래그 이벤트를 처리함
     events = response.data if response.data else []
 except Exception as e:
     events = []
 
-# 6. 캘린더 출력
-state = calendar(events=events, options=calendar_options, key="prod_calendar")
+# 6. 캘린더 출력 (key를 변경하여 리로딩 유도)
+state = calendar(events=events, options=calendar_options, key="calendar_v2")
 
 # 7. 드래그 앤 드롭 업데이트 로직
 if state.get("eventDrop"):
-    event_data = state["eventDrop"]["event"]
-    
-    # event_data에서 id를 확실히 추출
-    event_id = event_data.get("id")
-    new_start = event_data.get("start")
-    new_resource = event_data.get("resourceId")
+    event_info = state["eventDrop"]["event"]
+    event_id = event_info.get("id")
+    new_start = event_info.get("start")
+    new_resource = event_info.get("resourceId")
     
     if event_id and new_start:
         clean_date = new_start.split('T')[0]
         try:
-            # DB 업데이트
             supabase.table("production_schedule").update({
                 "start": clean_date,
                 "end": clean_date,
                 "resourceId": new_resource
             }).eq("id", event_id).execute()
-            st.rerun() # 업데이트 후 즉시 화면 갱신
+            
+            # 이벤트 발생 시 화면 갱신
+            st.rerun()
         except Exception as e:
-            st.error(f"DB 업데이트 실패: {e}")
+            st.error(f"업데이트 실패: {e}")
 
 # 8. 생산 계획 직접 등록
 st.markdown("---")
