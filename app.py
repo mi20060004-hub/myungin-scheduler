@@ -12,7 +12,7 @@ supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 1. 설비 리소스 및 데이터 로드
+# 1. 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"}, {"id": "P400", "title": "P400"},
     {"id": "GS400", "title": "GS400"}, {"id": "SM600", "title": "SM600"}, {"id": "KM10", "title": "KM10"},
@@ -25,52 +25,47 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 2. 에러 메시지 저장을 위한 세션 상태
-if 'last_error' not in st.session_state:
-    st.session_state.last_error = None
-
-# 3. 데이터 조회
+# 2. 캘린더 데이터 로드
 try:
     response = supabase.table("production_schedule").select("*").execute()
     events = [{"id": str(i["id"]), "resourceId": i["resourceId"], "title": i["title"], "start": i["start"], "end": i["end"]} for i in response.data]
-except Exception as e:
+except:
     events = []
-    st.error(f"데이터 로드 실패: {e}")
 
-# 4. 캘린더 출력
+# 3. 캘린더 출력
 state = calendar(events=events, options={
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
     "editable": True, "selectable": True, "height": "auto"
-}, key="final_calendar_v6")
+}, key="final_calendar_fixed")
 
-# 5. 드래그 앤 드롭 업데이트 (에러 고정 로직)
+# 4. 드래그 앤 드롭 업데이트 (에러 방지)
 if state.get("eventDrop"):
     event = state["eventDrop"]["event"]
-    eid = event.get("id")
-    new_start = event.get("start")
-    new_res = event.get("resourceId")
-    
-    if eid and new_start:
-        try:
-            clean_date = new_start.split('T')[0]
-            supabase.table("production_schedule").update({
-                "start": clean_date, "end": clean_date, "resourceId": new_res
-            }).eq("id", int(eid)).execute()
-            st.session_state.last_error = None # 성공 시 에러 초기화
-            st.rerun()
-        except Exception as e:
-            st.session_state.last_error = e # 에러를 세션에 저장하여 사라지지 않게 함
-
-# 에러가 있다면 화면에 표시
-if st.session_state.last_error:
-    st.error(f"⚠️ 업데이트 오류 발생: {st.session_state.last_error}")
-    if st.button("에러 메시지 지우기"):
-        st.session_state.last_error = None
+    try:
+        supabase.table("production_schedule").update({
+            "start": event["start"].split('T')[0],
+            "end": event["start"].split('T')[0],
+            "resourceId": event["resourceId"]
+        }).eq("id", int(event["id"])).execute()
         st.rerun()
+    except Exception as e:
+        st.error(f"이동 실패: {e}")
 
-# 6. 등록 폼
+# 5. [고정] 생산 계획 직접 등록 폼 (절대 삭제되지 않음)
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
-# ... (등록 폼 코드 동일)
+with st.form("direct_input_form", clear_on_submit=True):
+    col1, col2, col3 = st.columns(3)
+    target_date = col1.date_input("날짜 선택")
+    target_resource = col2.selectbox("설비 선택", [r['title'] for r in resources])
+    product_name = col3.text_input("제품명 및 제조번호")
+    
+    if st.form_submit_button("일정 등록하기"):
+        res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+        supabase.table("production_schedule").insert({
+            "resourceId": res_id, "title": product_name, 
+            "start": str(target_date), "end": str(target_date)
+        }).execute()
+        st.rerun()
