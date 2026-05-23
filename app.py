@@ -4,12 +4,10 @@ from supabase import create_client
 
 st.set_page_config(layout="wide")
 
-# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-# 팝업 함수
 @st.dialog("생산 계획 등록")
 def add_schedule_dialog(date, resource_id):
     products = supabase.table("product_master").select("product_name").execute().data
@@ -33,7 +31,6 @@ def add_schedule_dialog(date, resource_id):
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 리소스 목록
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -57,11 +54,8 @@ calendar_options = {
     "initialView": "resourceTimelineMonth",
     "resources": resources,
     "locale": "ko",
-    "resourceAreaHeaderContent": "설비명",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
-    "resourceAreaWidth": "20%",
-    "slotMinWidth": 100,
 }
 
 events = supabase.table("production_schedule").select("*").execute().data
@@ -69,10 +63,11 @@ events = supabase.table("production_schedule").select("*").execute().data
 # 캘린더 표시
 state = calendar(events=events, options=calendar_options)
 
-# 이번엔 'dateClick' 이벤트를 활용해 봅니다.
-if state.get("dateClick"):
-    clicked_date = state["dateClick"]["dateStr"]
-    clicked_resource = state["dateClick"].get("resource")
+# 에러 방지: state에 키가 있는지 안전하게 확인
+if state.get("select"):
+    selection = state["select"]
+    clicked_date = selection.get("startStr")
+    clicked_resource = selection.get("resourceId")
     
-    if clicked_resource:
+    if clicked_date and clicked_resource:
         add_schedule_dialog(clicked_date, clicked_resource)
