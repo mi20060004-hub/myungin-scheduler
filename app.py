@@ -11,7 +11,7 @@ supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 설비 리소스 설정
+# 1. 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"}, {"id": "P400", "title": "P400"},
     {"id": "GS400", "title": "GS400"}, {"id": "SM600", "title": "SM600"}, {"id": "KM10", "title": "KM10"},
@@ -37,44 +37,47 @@ calendar_options = {
     "selectable": True,
 }
 
-# 1. 상태 변수를 통해 오류 메시지 유지
-if "error_msg" not in st.session_state:
-    st.session_state.error_msg = ""
+# 2. 데이터 로드
+try:
+    response = supabase.table("production_schedule").select("*").execute()
+    events = [{"id": str(i["id"]), "resourceId": i["resourceId"], "title": i["title"], "start": i["start"], "end": i["end"]} for i in response.data]
+except:
+    events = []
 
-# 데이터 로드
-response = supabase.table("production_schedule").select("*").execute()
-events = [{"id": str(i["id"]), "resourceId": i["resourceId"], "title": i["title"], "start": i["start"], "end": i["end"]} for i in response.data]
+# 3. 캘린더 출력
+state = calendar(events=events, options=calendar_options, key="calendar_v5")
 
-# 캘린더 출력
-state = calendar(events=events, options=calendar_options, key="final_calendar_v4")
-
-# 2. 드래그 감지 및 처리
+# 4. 드래그 앤 드롭 업데이트
 if state.get("eventDrop"):
     event = state["eventDrop"]["event"]
     eid = event.get("id")
     new_start = event.get("start")
     new_res = event.get("resourceId")
-    
     if eid and new_start:
         clean_date = new_start.split('T')[0]
-        try:
-            # 시도 전 상태 초기화
-            st.session_state.error_msg = ""
-            supabase.table("production_schedule").update({
-                "start": clean_date,
-                "end": clean_date,
-                "resourceId": new_res
-            }).eq("id", int(eid)).execute()
-            st.rerun()
-        except Exception as e:
-            # 오류 발생 시 세션 상태에 저장하여 사라지지 않게 함
-            st.session_state.error_msg = str(e)
-            st.rerun()
+        supabase.table("production_schedule").update({"start": clean_date, "end": clean_date, "resourceId": new_res}).eq("id", int(eid)).execute()
+        st.rerun()
 
-# 3. 오류 메시지가 있다면 화면에 계속 표시
-if st.session_state.error_msg:
-    st.error(f"⚠️ DB 업데이트 오류: {st.session_state.error_msg}")
-
+# 5. [복원됨] 생산 계획 직접 등록 폼
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
-# ... (이하 등록 폼 코드 동일)
+product_names = []
+try:
+    p_res = supabase.table("product_master").select("제품명").execute()
+    product_names = [item["제품명"] for item in p_res.data]
+except: pass
+
+with st.form("direct_input_form", clear_on_submit=True):
+    col1, col2, col3 = st.columns(3)
+    with col1: target_date = st.date_input("날짜 선택")
+    with col2: target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
+    with col3: 
+        selected_product = st.selectbox("제품 선택", product_names)
+        lot_number = st.text_input("제조번호")
+    if st.form_submit_button("일정 등록하기"):
+        res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+        supabase.table("production_schedule").insert({
+            "resourceId": res_id, "title": f"{selected_product} ({lot_number})", 
+            "start": str(target_date), "end": str(target_date)
+        }).execute()
+        st.rerun()
