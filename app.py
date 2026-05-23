@@ -11,16 +11,16 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.title("🏭 생산 계획 스케줄러 (설비 중심 뷰)")
+st.title("🏭 생산 계획 스케줄러")
 
-# 1. 설비 리소스 설정 (가로축에 배치)
+# 1. 설비 리소스 설정 (가로축에 표시됨)
 resources = [
     {"id": "P100", "title": "과립공정 P100"},
     {"id": "트레이1호", "title": "건조공정 트레이1호"},
-    {"id": "PM1000", "title": "혼합공정 PM1000"}
+    {"id": "PM1000", "title": "혼합공정 PM1000"},
 ]
 
-# 2. 캘린더 옵션 설정 (Vertical Resource View)
+# 2. 캘린더 옵션 설정 (한글 적용 및 타임라인 뷰)
 calendar_options = {
     "editable": True,
     "selectable": True,
@@ -29,14 +29,12 @@ calendar_options = {
         "center": "title",
         "right": "resourceTimelineMonth"
     },
-    # 세로로 날짜를 나열하기 위한 핵심 옵션
-    "initialView": "resourceTimelineDay",
+    "initialView": "resourceTimelineMonth",
     "resources": resources,
-    "locale": resources,
+    "locale": "ko",  # 한글 적용
     "resourceAreaHeaderContent": "설비명",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
-    # 가로축에 설비, 세로축에 날짜가 오도록 하는 설정
     "resourceAreaWidth": "20%",
     "slotMinWidth": 100,
 }
