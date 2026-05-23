@@ -8,29 +8,9 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-@st.dialog("생산 계획 등록")
-def add_schedule_dialog(date, resource_id):
-    products = supabase.table("product_master").select("product_name").execute().data
-    product_list = [p["product_name"] for p in products]
-
-    with st.form("schedule_form"):
-        selected_product = st.selectbox("제품명 선택", product_list)
-        lot_number = st.text_input("제조번호 입력")
-        submitted = st.form_submit_button("저장")
-        
-        if submitted:
-            new_event = {
-                "resourceId": resource_id,
-                "title": f"{selected_product} ({lot_number})",
-                "start": date,
-                "end": date
-            }
-            supabase.table("production_schedule").insert(new_event).execute()
-            st.success("등록 완료!")
-            st.rerun()
-
 st.title("🏭 생산 계획 스케줄러")
 
+# 리소스 목록
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -47,9 +27,8 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
+# 1. 캘린더 표시
 calendar_options = {
-    "editable": True,
-    "selectable": True,
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
@@ -57,17 +36,35 @@ calendar_options = {
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
 }
-
 events = supabase.table("production_schedule").select("*").execute().data
+calendar(events=events, options=calendar_options)
 
-# 캘린더 표시
-state = calendar(events=events, options=calendar_options)
-
-# 에러 방지: state에 키가 있는지 안전하게 확인
-if state.get("select"):
-    selection = state["select"]
-    clicked_date = selection.get("startStr")
-    clicked_resource = selection.get("resourceId")
+# 2. 하단에 고정 등록 폼 추가 (클릭 대신 사용)
+st.markdown("---")
+st.subheader("📝 생산 계획 직접 등록")
+with st.form("direct_input_form", clear_on_submit=True):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        target_date = st.date_input("날짜 선택")
+    with col2:
+        target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
+    with col3:
+        # 제품 목록 가져오기
+        products = supabase.table("product_master").select("product_name").execute().data
+        product_names = [p["product_name"] for p in products]
+        selected_product = st.selectbox("제품 선택", product_names)
+        lot_number = st.text_input("제조번호")
     
-    if clicked_date and clicked_resource:
-        add_schedule_dialog(clicked_date, clicked_resource)
+    submitted = st.form_submit_button("일정 등록하기")
+    
+    if submitted:
+        # 설비 ID 매칭 (title -> id)
+        res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+        new_event = {
+            "resourceId": res_id,
+            "title": f"{selected_product} ({lot_number})",
+            "start": str(target_date),
+            "end": str(target_date)
+        }
+        supabase.table("production_schedule").insert(new_event).execute()
+        st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
