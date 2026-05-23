@@ -1,64 +1,103 @@
 import streamlit as st
-from streamlit_calendar import calendar
+import pandas as pd
 from supabase import create_client
+from datetime import datetime, timedelta
 
-# 1. 설정
-st.set_page_config(layout="wide")
+# 1. 페이지 설정 및 스타일
+st.set_page_config(layout="wide", page_title="생산 계획 관리 시트")
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stDataEditor { border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-st.title("🏭 생산 계획 스케줄러")
+st.title("📊 생산 계획 관리 시트 (엑셀형)")
+st.info("💡 칸에 제품명이나 계획을 입력하고 엔터를 누르면 자동 저장됩니다. 내용을 지우면 DB에서도 삭제됩니다.")
 
-# 2. 에러 메시지 고정용 세션 관리
-if "sticky_error" not in st.session_state:
-    st.session_state.sticky_error = None
+# 3. 데이터 준비 (날짜 범위 및 장비 리스트)
+# 날짜: 오늘 기준 전후 30일 (총 60일치)
+start_date = datetime.now().date() - timedelta(days=5)
+date_range = [ (start_date + timedelta(days=i)) for i in range(60) ]
+date_strings = [d.strftime("%Y-%m-%d") for d in date_range]
 
-# 3. 데이터 로드
-try:
-    response = supabase.table("production_schedule").select("*").execute()
-    # 테이블이 비어있으면 빈 리스트 반환
-    events = [{"id": str(i["id"]), "resourceId": i["resourceId"], "title": i["title"], "start": i["start"], "end": i["end"]} for i in response.data] if response.data else []
-except Exception as e:
-    events = []
-    st.session_state.sticky_error = f"데이터 로드 실패: {e}"
+# 장비명 (사용자 요청 4개)
+equipment_list = ["P100", "SM100", "P400", "GS400"]
 
-# 4. 캘린더 출력
-resources = [{"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"}, {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"}, {"id": "SM600", "title": "SM600"}, {"id": "KM10", "title": "KM10"}, {"id": "글라트유동층", "title": "글라트유동층"}, {"id": "GPCG2", "title": "GPCG2"}, {"id": "구형과립기", "title": "구형과립기"}, {"id": "롤러컴팩터", "title": "롤러컴팩터"}, {"id": "트레이1호", "title": "트레이1호"}, {"id": "트레이2호", "title": "트레이2호"}, {"id": "트레이3호", "title": "트레이3호"}, {"id": "트레이4호", "title": "트레이4호"}, {"id": "트레이5호", "title": "트레이5호"}, {"id": "트레이6호", "title": "트레이6호"}, {"id": "트레이7호", "title": "트레이7호"}, {"id": "다산유동층", "title": "다산유동층"}, {"id": "D600", "title": "D600"}, {"id": "Comil0112", "title": "Comil0112"}, {"id": "Comil0212", "title": "Comil0212"}, {"id": "Comil0312", "title": "Comil0312"}, {"id": "파워밀", "title": "파워밀"}, {"id": "PM1000", "title": "PM1000"}, {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}]
-
-state = calendar(events=events, options={"headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"}, "initialView": "resourceTimelineMonth", "resources": resources, "editable": True, "selectable": True, "height": "auto"}, key="calendar_final_attempt")
-
-# 5. 드래그 업데이트 (에러 발생 시 st.rerun() 없이 상태 저장)
-if state.get("eventDrop"):
-    event = state["eventDrop"]["event"]
+# 4. DB에서 데이터 불러와서 엑셀 형태로 변환
+def load_grid_data():
+    # 빈 데이터프레임 생성 (인덱스: 날짜, 컬럼: 장비명)
+    df = pd.DataFrame("", index=date_strings, columns=equipment_list)
+    
     try:
-        supabase.table("production_schedule").update({
-            "start": event["start"].split('T')[0],
-            "end": event["start"].split('T')[0],
-            "resourceId": event["resourceId"]
-        }).eq("id", int(event["id"])).execute()
-        st.session_state.sticky_error = None
-        st.rerun()
+        response = supabase.table("production_schedule").select("*").execute()
+        if response.data:
+            for row in response.data:
+                d = row.get("start")
+                res = row.get("resourceId")
+                title = row.get("title")
+                # 해당 날짜와 장비가 우리 그리드에 있다면 값 채우기
+                if d in df.index and res in df.columns:
+                    df.at[d, res] = title
     except Exception as e:
-        st.session_state.sticky_error = f"업데이트 실패! 원인: {str(e)}"
-        st.rerun()
+        st.error(f"데이터 로딩 실패: {e}")
+    
+    return df
 
-# 6. 에러 고정 출력 (삭제 버튼 누르기 전까지 절대 안 사라짐)
-if st.session_state.sticky_error:
-    st.error(st.session_state.sticky_error)
-    if st.button("에러 메시지 닫기"):
-        st.session_state.sticky_error = None
-        st.rerun()
+# 5. 데이터 그리드 표시 및 편집
+df_current = load_grid_data()
 
-# 7. 직접 등록 폼 (절대 안 사라짐)
-st.markdown("---")
-st.subheader("📝 생산 계획 직접 등록")
-with st.form("direct_input_form", clear_on_submit=True):
-    col1, col2, col3 = st.columns(3)
-    t_date = col1.date_input("날짜 선택")
-    t_res = col2.selectbox("설비 선택", [r['title'] for r in resources])
-    p_name = col3.text_input("제품명 및 제조번호")
-    if st.form_submit_button("일정 등록하기"):
-        res_id = next(r['id'] for r in resources if r['title'] == t_res)
-        supabase.table("production_schedule").insert({"resourceId": res_id, "title": p_name, "start": str(t_date), "end": str(t_date)}).execute()
-        st.rerun()
+# 엑셀 형식의 데이터 에디터 출력
+edited_df = st.data_editor(
+    df_current,
+    use_container_width=True,
+    height=600, # 스크롤이 생기도록 높이 조절
+    key="plan_editor",
+    num_rows="fixed"
+)
+
+# 6. 변경된 내용 DB에 반영 (중요: 자동 저장 로직)
+if st.button("💾 변경사항 최종 확인 및 강제 저장"):
+    st.rerun()
+
+# 실시간 변경 감지 및 업데이트
+# st.data_editor는 수정한 즉시 내부 state에 저장되므로, 
+# 데이터프레임의 차이를 분석하여 DB를 업데이트합니다.
+
+def sync_to_db(old_df, new_df):
+    for date in old_df.index:
+        for res in old_df.columns:
+            old_val = old_df.at[date, res]
+            new_val = new_df.at[date, res]
+            
+            if old_val != new_val:
+                # 1. 내용이 지워진 경우 -> DB에서 삭제
+                if new_val == "" or new_val is None:
+                    supabase.table("production_schedule").delete().eq("start", date).eq("resourceId", res).execute()
+                
+                # 2. 내용이 새로 입력되거나 수정된 경우
+                else:
+                    # 기존 데이터가 있는지 확인
+                    check = supabase.table("production_schedule").select("id").eq("start", date).eq("resourceId", res).execute()
+                    
+                    if check.data:
+                        # 업데이트
+                        supabase.table("production_schedule").update({"title": new_val}).eq("start", date).eq("resourceId", res).execute()
+                    else:
+                        # 신규 입력
+                        supabase.table("production_schedule").insert({
+                            "start": date,
+                            "end": date,
+                            "resourceId": res,
+                            "title": new_val
+                        }).execute()
+
+# 변경 사항이 있을 때만 실행
+if not df_current.equals(edited_df):
+    sync_to_db(df_current, edited_df)
+    st.toast("✅ DB에 저장되었습니다!", icon="💾")
