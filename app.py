@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_calendar import calendar
 from supabase import create_client
+from datetime import datetime
 
 st.set_page_config(layout="wide")
 
@@ -34,7 +35,7 @@ calendar_options = {
     "initialView": "resourceTimelineMonth",
     "resources": resources,
     "locale": "ko",
-    "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
+    "schedulerLicenseLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
     "resourceAreaWidth": "20%",
     "slotMinWidth": 100,
@@ -76,16 +77,17 @@ with st.form("direct_input_form", clear_on_submit=True):
             st.warning("제품 목록이 없습니다.")
         else:
             res_id = next(r['id'] for r in resources if r['title'] == target_resource)
-            # 데이터 삽입 (created_at은 DB가 자동 처리하므로 제외)
+            # created_at을 현재 시간으로 명시적 추가
             new_event = {
                 "resourceId": res_id,
                 "title": f"{selected_product} ({lot_number})",
                 "start": str(target_date),
-                "end": str(target_date)
+                "end": str(target_date),
+                "created_at": datetime.now().isoformat()
             }
             try:
                 supabase.table("production_schedule").insert(new_event).execute()
-                st.success("등록 완료!")
+                st.success("등록 완료! 새로고침하세요.")
                 st.rerun()
             except Exception as e:
                 st.error(f"등록 실패: {e}")
