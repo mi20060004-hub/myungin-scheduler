@@ -1,18 +1,17 @@
 import streamlit as st
 from streamlit_calendar import calendar
 from supabase import create_client
-import pandas as pd
 
 st.set_page_config(layout="wide")
 
+# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-# 팝업 함수 (제품 선택 및 제조번호 입력)
+# 팝업 함수
 @st.dialog("생산 계획 등록")
 def add_schedule_dialog(date, resource_id):
-    # product_master에서 제품명 가져오기
     products = supabase.table("product_master").select("product_name").execute().data
     product_list = [p["product_name"] for p in products]
 
@@ -52,7 +51,8 @@ resources = [
 ]
 
 calendar_options = {
-    "selectable": True, # 날짜 선택 가능
+    "selectable": True, 
+    "selectMirror": True,       # 클릭 시 선택 영역 표시
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
@@ -60,19 +60,20 @@ calendar_options = {
     "resourceAreaHeaderContent": "설비명",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
+    "resourceAreaWidth": "20%",
+    "slotMinWidth": 100,
 }
 
-# 데이터 로드
 events = supabase.table("production_schedule").select("*").execute().data
 
 # 캘린더 표시
 state = calendar(events=events, options=calendar_options)
 
-# 클릭 이벤트 처리
-if state.get("eventClick"):
-    pass # 기존 일정 수정은 추후 추가
-elif state.get("select"):
-    # 날짜와 리소스를 클릭했을 때 팝업 호출
-    clicked_date = state["select"]["startStr"]
-    clicked_resource = state["select"].get("resourceId")
-    add_schedule_dialog(clicked_date, clicked_resource)
+# 클릭 이벤트 처리 로직 개선
+if state.get("select"):
+    selection = state["select"]
+    clicked_date = selection["startStr"]
+    clicked_resource = selection.get("resourceId")
+    
+    if clicked_resource: # 리소스가 선택되었을 때만 팝업
+        add_schedule_dialog(clicked_date, clicked_resource)
