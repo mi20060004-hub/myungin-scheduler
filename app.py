@@ -7,7 +7,7 @@ st.set_page_config(layout="wide", page_title="PHOENIX 생산 스케줄러 3.0")
 
 st.markdown("""
     <style>
-    /* 상단 헤더 고정 (고정된 위치) */
+    /* 상단 헤더 고정 */
     .sticky-header {
         position: fixed;
         top: 60px;
@@ -23,7 +23,7 @@ st.markdown("""
     .header-item.date-width { flex: 1; }
     .content-container { margin-top: 80px; }
 
-    /* 바둑판 박스 스타일 */
+    /* 바둑판 박스 스타일 (박스 안에 요소가 갇히도록 설정) */
     .grid-cell {
         border: 1px solid #e0e0e0;
         min-height: 120px;
@@ -31,20 +31,19 @@ st.markdown("""
         background-color: white;
         display: flex;
         flex-direction: column;
-        justify-content: space-between; /* 위쪽(제품)과 아래쪽(버튼) 분리 */
-        position: relative;
+        justify-content: space-between;
+        height: 100%; /* 박스 높이 확보 */
     }
-    /* 제품 리스트 영역 (박스 상단) */
     .product-list {
         display: flex;
         flex-direction: column;
         gap: 5px;
-        margin-bottom: 10px;
+        width: 100%;
     }
-    /* 편집 버튼 영역 (박스 하단 우측) */
     .btn-container {
         display: flex;
         justify-content: flex-end;
+        margin-top: 5px;
     }
     .block-tag {
         background-color: #e1f5fe;
@@ -63,17 +62,18 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: center;
+        height: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# (Supabase 및 함수 로직은 동일)
+# Supabase 연결
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
+# 다이얼로그 및 함수들
 @st.dialog("📋 계획 편집")
 def edit_plan(date, resource):
     st.write(f"📅 {date} | ⚙️ {resource}")
-    # ... (데이터 로드 및 추가/삭제 로직은 이전과 동일)
     res = supabase.table("production_schedule").select("*").eq("start", date).eq("resourceId", resource).execute()
     if res.data:
         for item in res.data:
@@ -106,6 +106,7 @@ all_plans = supabase.table("production_schedule").select("*").execute().data
 
 for d in date_range:
     d_str = d.strftime("%Y-%m-%d")
+    # 컬럼 비율 조정
     row = st.columns([1] + [2]*len(equipment_list))
     row[0].markdown(f"<div class='date-col'>{d_str}</div>", unsafe_allow_html=True)
     
@@ -113,21 +114,17 @@ for d in date_range:
         cell_plans = [p for p in all_plans if p['start'] == d_str and p['resourceId'] == eq]
         
         with row[i+1]:
-            st.markdown("<div class='grid-cell'>", unsafe_allow_html=True)
-            
-            # 1. 제품 리스트 (상단)
-            st.markdown("<div class='product-list'>", unsafe_allow_html=True)
-            for p in cell_plans:
-                st.markdown(f"<span class='block-tag'>{p['title']}</span>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            # 2. 편집 버튼 (하단 우측)
-            with st.container():
-                st.markdown("<div class='btn-container'>", unsafe_allow_html=True)
-                if st.button("✎ 편집", key=f"btn_{d_str}_{eq}"):
-                    edit_plan(d_str, eq)
-                st.markdown("</div>", unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
+            # 핵심 수정: st.markdown으로 감싸지 말고 st.container 사용하거나 
+            # HTML을 한 덩어리로 묶어야 Streamlit이 밖으로 빼지 않습니다.
+            st.markdown(f"""
+                <div class='grid-cell'>
+                    <div class='product-list'>
+                        {''.join([f"<span class='block-tag'>{p['title']}</span>" for p in cell_plans])}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            # 편집 버튼은 Streamlit 버튼으로 유지하되 위치 잡기
+            if st.button("✎ 편집", key=f"btn_{d_str}_{eq}"):
+                edit_plan(d_str, eq)
 
 st.markdown("</div>", unsafe_allow_html=True)
