@@ -3,16 +3,14 @@ from streamlit_calendar import calendar
 from supabase import create_client
 from datetime import datetime
 
-st.set_page_config(layout="wide", page_title="생산 계획 스케줄러")
+st.set_page_config(layout="wide")
 
-# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"}, {"id": "P400", "title": "P400"},
     {"id": "GS400", "title": "GS400"}, {"id": "SM600", "title": "SM600"}, {"id": "KM10", "title": "KM10"},
@@ -25,7 +23,6 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -40,46 +37,46 @@ calendar_options = {
     "selectable": True,
 }
 
-# 데이터 로드
 try:
     response = supabase.table("production_schedule").select("*").execute()
     events = response.data if response.data else []
 except Exception as e:
     events = []
 
-# 캘린더 컴포넌트
-state = calendar(events=events, options=calendar_options, key="calendar_final")
+state = calendar(events=events, options=calendar_options, key="final_calendar")
 
-# 드래그 앤 드롭 업데이트 로직
+# 드래그 앤 드롭 디버깅 및 업데이트
 if state.get("eventDrop"):
     event_info = state["eventDrop"]["event"]
-    event_id = event_info.get("id")
-    new_start = event_info.get("start")
-    new_resource = event_info.get("resourceId")
+    st.write("--- 드래그 감지됨! 전달된 데이터 ---")
+    st.write(event_info) # 무엇이 넘어오는지 눈으로 확인
     
-    if event_id and new_start:
+    eid = event_info.get("id")
+    new_start = event_info.get("start")
+    new_res = event_info.get("resourceId")
+    
+    if eid and new_start:
         clean_date = new_start.split('T')[0]
         try:
-            supabase.table("production_schedule").update({
+            res = supabase.table("production_schedule").update({
                 "start": clean_date,
                 "end": clean_date,
-                "resourceId": new_resource
-            }).eq("id", event_id).execute()
+                "resourceId": new_res
+            }).eq("id", eid).execute()
+            
+            st.success("DB 업데이트 성공!")
             st.rerun()
         except Exception as e:
-            st.error(f"드래그 업데이트 실패: {e}")
+            st.error(f"DB 업데이트 에러: {e}")
 
-# --- 생산 계획 직접 등록 기능 복원 ---
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
-
 product_names = []
 try:
     p_response = supabase.table("product_master").select("제품명").execute()
     if p_response.data:
         product_names = [item.get("제품명") for item in p_response.data if item.get("제품명")]
-except:
-    pass
+except: pass
 
 with st.form("direct_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
@@ -88,19 +85,8 @@ with st.form("direct_input_form", clear_on_submit=True):
     with col3: 
         selected_product = st.selectbox("제품 선택", product_names if product_names else ["데이터 없음"])
         lot_number = st.text_input("제조번호")
-    
     if st.form_submit_button("일정 등록하기"):
         res_id = next(r['id'] for r in resources if r['title'] == target_resource)
-        new_event = {
-            "resourceId": res_id,
-            "title": f"{selected_product} ({lot_number})",
-            "start": str(target_date),
-            "end": str(target_date),
-            "created_at": datetime.now().isoformat()
-        }
-        try:
-            supabase.table("production_schedule").insert(new_event).execute()
-            st.success("등록 완료!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"등록 실패: {e}")
+        new_event = {"resourceId": res_id, "title": f"{selected_product} ({lot_number})", "start": str(target_date), "end": str(target_date), "created_at": datetime.now().isoformat()}
+        supabase.table("production_schedule").insert(new_event).execute()
+        st.rerun()
