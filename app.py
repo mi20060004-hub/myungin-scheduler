@@ -2,24 +2,33 @@ import streamlit as st
 from supabase import create_client
 from datetime import datetime, timedelta
 
-# 1. 페이지 설정 및 디자인 (바둑판 스타일)
+# 1. 페이지 설정
 st.set_page_config(layout="wide", page_title="PHOENIX 생산 스케줄러 3.0")
 
 st.markdown("""
     <style>
-    /* 바둑판 스타일 CSS */
+    /* 상단 헤더 고정 (Sticky Header) */
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: #f0f2f6;
+        padding: 10px 0;
+        border-bottom: 2px solid #d0d0d0;
+        margin-bottom: 5px;
+    }
     .grid-cell {
         border: 1px solid #e0e0e0;
-        min-height: 80px;
-        padding: 5px;
+        min-height: 100px;
+        padding: 8px;
         background-color: white;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
     }
     .header-cell {
-        border: 1px solid #d0d0d0;
-        background-color: #f0f2f6;
         font-weight: bold;
         text-align: center;
-        padding: 10px;
     }
     .date-col { 
         border: 1px solid #d0d0d0;
@@ -27,6 +36,9 @@ st.markdown("""
         font-weight: bold; 
         text-align: center;
         padding: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
     .block-tag {
         display: block;
@@ -34,10 +46,10 @@ st.markdown("""
         color: #01579b;
         border-radius: 4px;
         padding: 4px 8px;
-        margin: 3px 0;
         font-size: 0.8rem;
         border: 1px solid #b3e5fc;
         font-weight: 600;
+        margin-top: 2px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -80,18 +92,20 @@ def edit_plan(date, resource):
 # 5. 메인 그리드 렌더링
 st.title("🏭 PHOENIX 생산 스케줄러 3.0")
 
-# 날짜 범위 설정
-base_date = datetime.now().date()
-date_range = [(base_date + timedelta(days=i)) for i in range(15)]
-all_plans = supabase.table("production_schedule").select("*").execute().data
-
-# 헤더 그리기
+# 고정 헤더 영역
+st.markdown("<div class='sticky-header'>", unsafe_allow_html=True)
 header_cols = st.columns([1] + [2]*len(equipment_list))
 header_cols[0].markdown("<div class='header-cell'>날짜</div>", unsafe_allow_html=True)
 for i, eq in enumerate(equipment_list):
     header_cols[i+1].markdown(f"<div class='header-cell'>{eq}</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# 데이터 로드
+all_plans = supabase.table("production_schedule").select("*").execute().data
 
 # 행 그리기
+date_range = [(datetime.now().date() + timedelta(days=i)) for i in range(15)]
+
 for d in date_range:
     d_str = d.strftime("%Y-%m-%d")
     row = st.columns([1] + [2]*len(equipment_list))
@@ -102,9 +116,12 @@ for d in date_range:
         cell_plans = [p for p in all_plans if p['start'] == d_str and p['resourceId'] == eq]
         
         with row[i+1]:
+            # 셀 내부 영역
             st.markdown("<div class='grid-cell'>", unsafe_allow_html=True)
-            if st.button("편집", key=f"btn_{d_str}_{eq}"):
+            # 편집 버튼을 상단에 배치
+            if st.button("✎ 편집", key=f"btn_{d_str}_{eq}"):
                 edit_plan(d_str, eq)
+            # 제품 블록들을 아래에 배치
             for p in cell_plans:
                 st.markdown(f"<span class='block-tag'>{p['title']}</span>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
