@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_calendar import calendar
 from supabase import create_client
 
+# 페이지 레이아웃 설정
 st.set_page_config(layout="wide")
 
 # Supabase 연결
@@ -11,7 +12,7 @@ supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 리소스 목록
+# 1. 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -28,7 +29,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 캘린더 옵션
+# 2. 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -36,26 +37,28 @@ calendar_options = {
     "locale": "ko",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
+    "resourceAreaWidth": "20%",
+    "slotMinWidth": 100,
 }
 
-# 캘린더 표시
+# 캘린더 데이터 로드
 try:
     events = supabase.table("production_schedule").select("*").execute().data
 except:
     events = []
 calendar(events=events, options=calendar_options)
 
-# --- 등록 폼 ---
+# 3. 등록 폼
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
 
-# 1. 제품 목록을 안전하게 가져오기 (테이블 문제 방지)
+# 제품 목록 가져오기 (컬럼명 '제품명'으로 수정 반영)
 try:
-    product_data = supabase.table("product_master").select("product_name").execute().data
-    product_names = [p["product_name"] for p in product_data]
-except:
-    product_names = ["테이블 확인 필요"]
-    st.warning("product_master 테이블에서 제품 목록을 가져오지 못했습니다.")
+    product_data = supabase.table("product_master").select("제품명").execute().data
+    product_names = [p["제품명"] for p in product_data]
+except Exception as e:
+    product_names = ["목록 불러오기 실패"]
+    st.error(f"데이터베이스 연결 오류: {e}")
 
 with st.form("direct_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
@@ -67,7 +70,6 @@ with st.form("direct_input_form", clear_on_submit=True):
         selected_product = st.selectbox("제품 선택", product_names)
         lot_number = st.text_input("제조번호")
     
-    # 여기서 버튼을 명확하게 추가합니다.
     submitted = st.form_submit_button("일정 등록하기")
     
     if submitted:
