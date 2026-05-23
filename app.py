@@ -51,8 +51,8 @@ resources = [
 ]
 
 calendar_options = {
-    "selectable": True, 
-    "selectMirror": True,       # 클릭 시 선택 영역 표시
+    "editable": True,
+    "selectable": True,
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
@@ -69,11 +69,10 @@ events = supabase.table("production_schedule").select("*").execute().data
 # 캘린더 표시
 state = calendar(events=events, options=calendar_options)
 
-# 클릭 이벤트 처리 로직 개선
-if state.get("select"):
-    selection = state["select"]
-    clicked_date = selection["startStr"]
-    clicked_resource = selection.get("resourceId")
+# 이번엔 'dateClick' 이벤트를 활용해 봅니다.
+if state.get("dateClick"):
+    clicked_date = state["dateClick"]["dateStr"]
+    clicked_resource = state["dateClick"].get("resource")
     
-    if clicked_resource: # 리소스가 선택되었을 때만 팝업
+    if clicked_resource:
         add_schedule_dialog(clicked_date, clicked_resource)
