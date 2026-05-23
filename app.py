@@ -2,17 +2,15 @@ import streamlit as st
 from streamlit_calendar import calendar
 from supabase import create_client
 
-# 페이지 레이아웃 설정
 st.set_page_config(layout="wide")
 
-# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 1. 설비 리소스 설정
+# 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -29,7 +27,6 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 2. 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -48,19 +45,21 @@ except:
     events = []
 calendar(events=events, options=calendar_options)
 
-# 3. 등록 폼
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
 
-# 데이터 가져오기 로직 보완
+# 데이터 불러오기 수정 (데이터 확인용 디버깅 추가)
 product_names = []
 try:
     response = supabase.table("product_master").select("제품명").execute()
     if response.data:
-        # 데이터가 있는지 확인하고 리스트 생성
-        product_names = [item["제품명"] for item in response.data if item.get("제품명")]
-    else:
-        st.error("데이터가 비어있습니다.")
+        # 데이터가 딕셔너리 리스트 형태로 잘 들어오는지 확인
+        product_names = [item["제품명"] for item in response.data if "제품명" in item]
+    
+    if not product_names:
+        st.write("불러온 데이터:", response.data) # 데이터 구조 확인용
+        st.error("데이터는 불러왔으나 '제품명' 컬럼을 찾을 수 없습니다.")
+
 except Exception as e:
     st.error(f"데이터베이스 연결 오류: {e}")
 
@@ -71,7 +70,7 @@ with st.form("direct_input_form", clear_on_submit=True):
     with col2:
         target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
     with col3:
-        # product_names가 비어있으면 selectbox가 비활성화됨
+        # 리스트가 비어있지 않을 때만 정상 작동
         selected_product = st.selectbox("제품 선택", product_names if product_names else ["데이터 없음"])
         lot_number = st.text_input("제조번호")
     
@@ -79,7 +78,7 @@ with st.form("direct_input_form", clear_on_submit=True):
     
     if submitted:
         if not product_names:
-            st.warning("제품 목록이 없습니다.")
+            st.warning("제품 목록이 로드되지 않았습니다.")
         else:
             res_id = next(r['id'] for r in resources if r['title'] == target_resource)
             new_event = {
@@ -88,9 +87,6 @@ with st.form("direct_input_form", clear_on_submit=True):
                 "start": str(target_date),
                 "end": str(target_date)
             }
-            try:
-                supabase.table("production_schedule").insert(new_event).execute()
-                st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"등록 실패: {e}")
+            supabase.table("production_schedule").insert(new_event).execute()
+            st.success("등록 완료!")
+            st.rerun()
