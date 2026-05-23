@@ -4,6 +4,7 @@ from supabase import create_client
 
 st.set_page_config(layout="wide")
 
+# Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
@@ -27,7 +28,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 1. 캘린더 표시
+# 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -36,12 +37,26 @@ calendar_options = {
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
 }
-events = supabase.table("production_schedule").select("*").execute().data
+
+# 캘린더 표시
+try:
+    events = supabase.table("production_schedule").select("*").execute().data
+except:
+    events = []
 calendar(events=events, options=calendar_options)
 
-# 2. 하단에 고정 등록 폼 추가 (클릭 대신 사용)
+# --- 등록 폼 ---
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
+
+# 1. 제품 목록을 안전하게 가져오기 (테이블 문제 방지)
+try:
+    product_data = supabase.table("product_master").select("product_name").execute().data
+    product_names = [p["product_name"] for p in product_data]
+except:
+    product_names = ["테이블 확인 필요"]
+    st.warning("product_master 테이블에서 제품 목록을 가져오지 못했습니다.")
+
 with st.form("direct_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -49,16 +64,13 @@ with st.form("direct_input_form", clear_on_submit=True):
     with col2:
         target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
     with col3:
-        # 제품 목록 가져오기
-        products = supabase.table("product_master").select("product_name").execute().data
-        product_names = [p["product_name"] for p in products]
         selected_product = st.selectbox("제품 선택", product_names)
         lot_number = st.text_input("제조번호")
     
+    # 여기서 버튼을 명확하게 추가합니다.
     submitted = st.form_submit_button("일정 등록하기")
     
     if submitted:
-        # 설비 ID 매칭 (title -> id)
         res_id = next(r['id'] for r in resources if r['title'] == target_resource)
         new_event = {
             "resourceId": res_id,
@@ -66,5 +78,9 @@ with st.form("direct_input_form", clear_on_submit=True):
             "start": str(target_date),
             "end": str(target_date)
         }
-        supabase.table("production_schedule").insert(new_event).execute()
-        st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
+        try:
+            supabase.table("production_schedule").insert(new_event).execute()
+            st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"등록 실패: {e}")
