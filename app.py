@@ -52,12 +52,16 @@ calendar(events=events, options=calendar_options)
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
 
-# 제품 목록 가져오기 (컬럼명 '제품명'으로 수정 반영)
+# 데이터 가져오기 로직 보완
+product_names = []
 try:
-    product_data = supabase.table("product_master").select("제품명").execute().data
-    product_names = [p["제품명"] for p in product_data]
+    response = supabase.table("product_master").select("제품명").execute()
+    if response.data:
+        # 데이터가 있는지 확인하고 리스트 생성
+        product_names = [item["제품명"] for item in response.data if item.get("제품명")]
+    else:
+        st.error("데이터가 비어있습니다.")
 except Exception as e:
-    product_names = ["목록 불러오기 실패"]
     st.error(f"데이터베이스 연결 오류: {e}")
 
 with st.form("direct_input_form", clear_on_submit=True):
@@ -67,22 +71,26 @@ with st.form("direct_input_form", clear_on_submit=True):
     with col2:
         target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
     with col3:
-        selected_product = st.selectbox("제품 선택", product_names)
+        # product_names가 비어있으면 selectbox가 비활성화됨
+        selected_product = st.selectbox("제품 선택", product_names if product_names else ["데이터 없음"])
         lot_number = st.text_input("제조번호")
     
     submitted = st.form_submit_button("일정 등록하기")
     
     if submitted:
-        res_id = next(r['id'] for r in resources if r['title'] == target_resource)
-        new_event = {
-            "resourceId": res_id,
-            "title": f"{selected_product} ({lot_number})",
-            "start": str(target_date),
-            "end": str(target_date)
-        }
-        try:
-            supabase.table("production_schedule").insert(new_event).execute()
-            st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
-            st.rerun()
-        except Exception as e:
-            st.error(f"등록 실패: {e}")
+        if not product_names:
+            st.warning("제품 목록이 없습니다.")
+        else:
+            res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+            new_event = {
+                "resourceId": res_id,
+                "title": f"{selected_product} ({lot_number})",
+                "start": str(target_date),
+                "end": str(target_date)
+            }
+            try:
+                supabase.table("production_schedule").insert(new_event).execute()
+                st.success("등록 완료! 페이지를 새로고침하면 반영됩니다.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"등록 실패: {e}")
