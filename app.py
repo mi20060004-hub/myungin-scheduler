@@ -32,6 +32,7 @@ calendar_options = {
     # 세로로 날짜를 나열하기 위한 핵심 옵션
     "initialView": "resourceTimelineDay",
     "resources": resources,
+    "locale": resources,
     "resourceAreaHeaderContent": "설비명",
     "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
