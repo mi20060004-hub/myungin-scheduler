@@ -29,7 +29,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 캘린더 옵션 (드래그 앤 드롭 활성화)
+# 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -39,8 +39,8 @@ calendar_options = {
     "height": "auto",
     "resourceAreaWidth": "20%",
     "slotMinWidth": 100,
-    "editable": True,      # 일정 수정(드래그) 가능
-    "selectable": True,    # 날짜 선택 가능
+    "editable": True,
+    "selectable": True,
 }
 
 # 캘린더 데이터 로드
@@ -49,25 +49,26 @@ try:
 except:
     events = []
 
-# 캘린더 출력 및 드래그 앤 드롭 감지
+# 캘린더 출력 및 드래그 앤 드롭 처리
 state = calendar(events=events, options=calendar_options)
 
-# 드래그 앤 드롭 이벤트 발생 시 DB 업데이트
 if state.get("eventDrop"):
     event_info = state["eventDrop"]["event"]
-    event_id = event_info["id"]
-    new_start = event_info["start"]
-    new_resource = event_info["resourceId"]
+    # 캘린더 컴포넌트에서 전달된 정보 추출 (id가 없으면 title로 매칭 시도)
+    event_id = event_info.get("id")
+    new_start = event_info.get("start")[:10]  # YYYY-MM-DD 형식으로 변환
+    new_resource = event_info.get("resourceId")
     
-    try:
-        supabase.table("production_schedule").update({
-            "start": new_start,
-            "end": new_start,
-            "resourceId": new_resource
-        }).eq("id", event_id).execute()
-        st.rerun()
-    except Exception as e:
-        st.error(f"드래그 업데이트 실패: {e}")
+    if event_id and new_start and new_resource:
+        try:
+            supabase.table("production_schedule").update({
+                "start": new_start,
+                "end": new_start,
+                "resourceId": new_resource
+            }).eq("id", event_id).execute()
+            st.rerun()
+        except Exception as e:
+            st.error(f"DB 업데이트 실패: {e}")
 
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
