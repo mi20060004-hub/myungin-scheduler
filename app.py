@@ -29,16 +29,18 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 캘린더 옵션
+# 캘린더 옵션 (드래그 앤 드롭 활성화)
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
     "resources": resources,
     "locale": "ko",
-    "schedulerLicenseLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
+    "schedulerLicenseKey": "CC-Attribution-NonCommercial-NoDerivs",
     "height": "auto",
     "resourceAreaWidth": "20%",
     "slotMinWidth": 100,
+    "editable": True,      # 일정 수정(드래그) 가능
+    "selectable": True,    # 날짜 선택 가능
 }
 
 # 캘린더 데이터 로드
@@ -46,7 +48,26 @@ try:
     events = supabase.table("production_schedule").select("*").execute().data
 except:
     events = []
-calendar(events=events, options=calendar_options)
+
+# 캘린더 출력 및 드래그 앤 드롭 감지
+state = calendar(events=events, options=calendar_options)
+
+# 드래그 앤 드롭 이벤트 발생 시 DB 업데이트
+if state.get("eventDrop"):
+    event_info = state["eventDrop"]["event"]
+    event_id = event_info["id"]
+    new_start = event_info["start"]
+    new_resource = event_info["resourceId"]
+    
+    try:
+        supabase.table("production_schedule").update({
+            "start": new_start,
+            "end": new_start,
+            "resourceId": new_resource
+        }).eq("id", event_id).execute()
+        st.rerun()
+    except Exception as e:
+        st.error(f"드래그 업데이트 실패: {e}")
 
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
@@ -57,37 +78,29 @@ try:
     response = supabase.table("product_master").select("제품명").execute()
     if response.data:
         product_names = [item.get("제품명") for item in response.data if item.get("제품명")]
-except Exception as e:
-    st.error(f"DB 연결 오류: {e}")
+except:
+    pass
 
 with st.form("direct_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
-    with col1:
-        target_date = st.date_input("날짜 선택")
-    with col2:
-        target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
-    with col3:
+    with col1: target_date = st.date_input("날짜 선택")
+    with col2: target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
+    with col3: 
         selected_product = st.selectbox("제품 선택", product_names if product_names else ["데이터 없음"])
         lot_number = st.text_input("제조번호")
     
-    submitted = st.form_submit_button("일정 등록하기")
-    
-    if submitted:
-        if not product_names:
-            st.warning("제품 목록이 없습니다.")
-        else:
-            res_id = next(r['id'] for r in resources if r['title'] == target_resource)
-            # created_at을 현재 시간으로 명시적 추가
-            new_event = {
-                "resourceId": res_id,
-                "title": f"{selected_product} ({lot_number})",
-                "start": str(target_date),
-                "end": str(target_date),
-                "created_at": datetime.now().isoformat()
-            }
-            try:
-                supabase.table("production_schedule").insert(new_event).execute()
-                st.success("등록 완료! 새로고침하세요.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"등록 실패: {e}")
+    if st.form_submit_button("일정 등록하기"):
+        res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+        new_event = {
+            "resourceId": res_id,
+            "title": f"{selected_product} ({lot_number})",
+            "start": str(target_date),
+            "end": str(target_date),
+            "created_at": datetime.now().isoformat()
+        }
+        try:
+            supabase.table("production_schedule").insert(new_event).execute()
+            st.success("등록 완료! 새로고침하세요.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"등록 실패: {e}")
