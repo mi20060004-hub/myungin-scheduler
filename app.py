@@ -3,14 +3,17 @@ from streamlit_calendar import calendar
 from supabase import create_client
 from datetime import datetime
 
+# 1. 페이지 설정
 st.set_page_config(layout="wide", page_title="생산 계획 스케줄러")
 
+# 2. Supabase 연결
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
+# 3. 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"}, {"id": "P400", "title": "P400"},
     {"id": "GS400", "title": "GS400"}, {"id": "SM600", "title": "SM600"}, {"id": "KM10", "title": "KM10"},
@@ -23,6 +26,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
+# 4. 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -36,17 +40,23 @@ calendar_options = {
     "selectable": True,
 }
 
+# 5. 데이터 조회 (핵심: DB의 id를 명시적으로 가져옴)
 try:
-    response = supabase.table("production_schedule").select("*").execute()
+    # select("*")는 모든 컬럼을 가져오며, DB의 id값이 반드시 포함됨
+    response = supabase.table("production_schedule").select("id, title, start, end, resourceId").execute()
+    # 캘린더 라이브러리는 'id'라는 키값이 있어야 드래그 이벤트를 처리함
     events = response.data if response.data else []
-except:
+except Exception as e:
     events = []
 
+# 6. 캘린더 출력
 state = calendar(events=events, options=calendar_options, key="prod_calendar")
 
+# 7. 드래그 앤 드롭 업데이트 로직
 if state.get("eventDrop"):
     event_data = state["eventDrop"]["event"]
-    # 캘린더에서 드래그된 이벤트의 ID와 위치 정보 추출
+    
+    # event_data에서 id를 확실히 추출
     event_id = event_data.get("id")
     new_start = event_data.get("start")
     new_resource = event_data.get("resourceId")
@@ -54,16 +64,17 @@ if state.get("eventDrop"):
     if event_id and new_start:
         clean_date = new_start.split('T')[0]
         try:
-            # 해당 ID를 가진 데이터만 업데이트
+            # DB 업데이트
             supabase.table("production_schedule").update({
                 "start": clean_date,
                 "end": clean_date,
                 "resourceId": new_resource
             }).eq("id", event_id).execute()
-            st.rerun()
+            st.rerun() # 업데이트 후 즉시 화면 갱신
         except Exception as e:
-            st.error(f"업데이트 실패: {e}")
+            st.error(f"DB 업데이트 실패: {e}")
 
+# 8. 생산 계획 직접 등록
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
 
@@ -94,7 +105,6 @@ with st.form("direct_input_form", clear_on_submit=True):
         }
         try:
             supabase.table("production_schedule").insert(new_event).execute()
-            st.success("등록 완료!")
             st.rerun()
         except Exception as e:
             st.error(f"등록 실패: {e}")
