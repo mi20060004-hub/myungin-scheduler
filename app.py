@@ -11,7 +11,7 @@ supabase = create_client(url, key)
 
 st.title("🏭 생산 계획 스케줄러")
 
-# 1. 설비 리소스 설정
+# 설비 리소스 설정
 resources = [
     {"id": "P100", "title": "P100"}, {"id": "SM100", "title": "SM100"},
     {"id": "P400", "title": "P400"}, {"id": "GS400", "title": "GS400"},
@@ -28,7 +28,7 @@ resources = [
     {"id": "PM2000", "title": "PM2000"}, {"id": "드럼혼합기", "title": "드럼혼합기"}
 ]
 
-# 2. 캘린더 옵션
+# 캘린더 옵션
 calendar_options = {
     "headerToolbar": {"left": "prev,next today", "center": "title", "right": "resourceTimelineMonth"},
     "initialView": "resourceTimelineMonth",
@@ -47,19 +47,17 @@ except:
     events = []
 calendar(events=events, options=calendar_options)
 
-# 3. 등록 폼
 st.markdown("---")
 st.subheader("📝 생산 계획 직접 등록")
 
-# 데이터 불러오기 수정 - Supabase 응답 객체에서 직접 추출
+# 제품 목록 로드
 product_names = []
 try:
     response = supabase.table("product_master").select("제품명").execute()
-    # response.data는 리스트 형태 (예: [{'제품명': '가펜틴...'}, ...])
     if response.data:
         product_names = [item.get("제품명") for item in response.data if item.get("제품명")]
 except Exception as e:
-    st.error(f"데이터베이스 연결 오류: {e}")
+    st.error(f"DB 연결 오류: {e}")
 
 with st.form("direct_input_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
@@ -68,26 +66,26 @@ with st.form("direct_input_form", clear_on_submit=True):
     with col2:
         target_resource = st.selectbox("설비 선택", [r['title'] for r in resources])
     with col3:
-        # 데이터가 있으면 리스트를 보여주고, 없으면 경고
-        if product_names:
-            selected_product = st.selectbox("제품 선택", product_names)
-        else:
-            selected_product = st.selectbox("제품 선택", ["데이터 없음"])
+        selected_product = st.selectbox("제품 선택", product_names if product_names else ["데이터 없음"])
         lot_number = st.text_input("제조번호")
     
     submitted = st.form_submit_button("일정 등록하기")
     
     if submitted:
         if not product_names:
-            st.warning("제품 목록을 불러오지 못했습니다.")
+            st.warning("제품 목록이 없습니다.")
         else:
             res_id = next(r['id'] for r in resources if r['title'] == target_resource)
+            # 데이터 삽입 (created_at은 DB가 자동 처리하므로 제외)
             new_event = {
                 "resourceId": res_id,
                 "title": f"{selected_product} ({lot_number})",
                 "start": str(target_date),
                 "end": str(target_date)
             }
-            supabase.table("production_schedule").insert(new_event).execute()
-            st.success("등록 완료! 새로고침하세요.")
-            st.rerun()
+            try:
+                supabase.table("production_schedule").insert(new_event).execute()
+                st.success("등록 완료!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"등록 실패: {e}")
