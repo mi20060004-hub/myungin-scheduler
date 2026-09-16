@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 휴무일이 빨간색 글씨로 강조된 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -244,8 +244,7 @@ with tab1:
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 off_reason = holiday_dict.get(d_str, "일요일 휴무" if w_idx == 6 else "")
 
-                # 판다스 dataframe 표 출력을 위해 HTML 스타일 태그 대신 별도 마킹이나 상태값 부여
-                # (스타일 적용을 위해 휴무일인 경우 텍스트에 접두어 추가 등 처리 가능)
+                # 휴무일인 경우 구분하기 쉽도록 표시 텍스트 생성
                 if is_off:
                     display_date = f"[휴무] {d_str}"
                     display_weekday = f"[휴무] {w_str}"
@@ -328,78 +327,9 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # [수정] st.dataframe 대신 st.markdown과 HTML 테이블을 결합하여 날짜, 요일, 휴무일 글자색을 완벽한 빨간색으로 표시
-            html_rows = []
-            for idx, r in df_matrix.iterrows():
-                # 원래 날짜 문자열 복원
-                raw_d = date_range[idx].strftime('%Y-%m-%d')
-                w_idx = date_range[idx].weekday()
-                w_str = days[w_idx]
-                is_off = (w_idx == 6) or (date_range[idx].strftime('%Y-%m-%d') in holiday_dates)
-                
-                # 날짜 및 요일 스타일
-                if is_off:
-                    d_cell = f"<span style='color:red; font-weight:bold;'>{raw_d}</span>"
-                    w_cell = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
-                else:
-                    d_cell = raw_d
-                    w_cell = w_str
-                
-                tds = [f"<td>{d_cell}</td>", f"<td>{w_cell}</td>"]
-                
-                for eq in equipments:
-                    p_val = str(r.get(f"{eq}_제품명", "-"))
-                    b_val = str(r.get(f"{eq}_제조번호", "-"))
-                    h_val = str(r.get(f"{eq}_소요시간(h)", 0))
-                    
-                    # 휴무일 안내 글자([일요일 휴무], [추석] 등)인 경우 빨간색 글씨로 감싸기
-                    if is_off and p_val.startswith("[") and p_val.endswith("]"):
-                        p_cell = f"<span style='color:red; font-weight:bold;'>{p_val}</span>"
-                    else:
-                        p_cell = p_val
-                        
-                    tds.append(f"<td>{p_cell}</td>")
-                    tds.append(f"<td>{b_val}</td>")
-                    tds.append(f"<td>{h_val}</td>")
-                    
-                html_rows.append("<tr>" + "".join(tds) + "</tr>")
-                
-            # 헤더 HTML 생성 (장비별 배경색 적용)
-            table_header = """
-            <thead>
-                <tr style="background-color: #f1f3f4;">
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">날짜</th>
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">요일</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E3F2FD;">보쉬충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E8F5E9;">세종20홀충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #FFF3E0;">세종6홀충전기</th>
-                </tr>
-                <tr style="background-color: #f9f9f9;">
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">소요시간(h)</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">소요시간(h)</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">소요시간(h)</th>
-                </tr>
-            </thead>
-            """
-            
-            custom_table_html = f"""
-            <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd;">
-                <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 14px;">
-                    {table_header}
-                    <tbody>
-                        {"".join(html_rows)}
-                    </tbody>
-                </table>
-            </div>
-            """
-            
-            st.markdown(custom_table_html, unsafe_allow_html=True)
+            # 안정적인 Streamlit 기본 테이블 컴포넌트 출력
+            table_height = max(400, len(df_matrix) * 35 + 40)
+            st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ 전체 일정 초기화"):
