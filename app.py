@@ -279,6 +279,14 @@ with tab1:
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 off_reason = holiday_dict.get(d_str, "일요일 휴무" if w_idx == 6 else "")
 
+                # 휴무일인 경우 날짜와 요일에 표시 텍스트 적용 (빨간원 제거, 텍스트만 깔끔하게)
+                if is_off:
+                    display_date = f"[휴무] {d_str}" if off_reason == "" else f"[{off_reason}] {d_str}"
+                    display_weekday = f"({w_str})"
+                else:
+                    display_date = d_str
+                    display_weekday = w_str
+
                 note_val = ""
                 if not df_raw.empty and 'note' in df_raw.columns:
                     df_date_notes = df_raw[(df_raw['target_date'] == d_str) & (df_raw['note'].notna()) & (df_raw['note'] != "")]
@@ -287,7 +295,7 @@ with tab1:
                         if notes_list:
                             note_val = ", ".join(notes_list)
 
-                row_data = {'날짜': d_str, '요일': w_str, '메모': note_val}
+                row_data = {'날짜': display_date, '요일': display_weekday, '메모': note_val}
                 csv_row = {'날짜': d_str, '요일': w_str, '메모': note_val}
 
                 for eq in equipments:
@@ -362,83 +370,9 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # HTML 테이블 렌더링 방식 (빨간원 제거, 휴무일 날짜·요일·휴무사유 글자색 붉은색 적용)
-            html_rows = []
-            for idx, r in df_matrix.iterrows():
-                current_date = date_range[idx]
-                d_str = current_date.strftime('%Y-%m-%d')
-                w_idx = current_date.weekday()
-                w_str = days[w_idx]
-                is_off = (w_idx == 6) or (d_str in holiday_dates)
-                
-                # 날짜 및 요일 텍스트 스타일 (휴무일이면 붉은색 글씨, 빨간원 없음)
-                if is_off:
-                    d_cell = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
-                    w_cell = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
-                else:
-                    d_cell = d_str
-                    w_cell = w_str
-                
-                memo_val = str(r.get("메모", ""))
-                
-                tds = [
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{d_cell}</td>", 
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{w_cell}</td>",
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{memo_val}</td>"
-                ]
-                
-                for eq in equipments:
-                    p_val = str(r.get(f"{eq}_제품명", "-"))
-                    b_val = str(r.get(f"{eq}_제조번호", "-"))
-                    h_val = str(r.get(f"{eq}_시간", 0))
-                    
-                    if is_off and p_val.startswith("[") and p_val.endswith("]"):
-                        p_cell = f"<span style='color:red; font-weight:bold;'>{p_val}</span>"
-                    else:
-                        p_cell = p_val
-                        
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{p_cell}</td>")
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{b_val}</td>")
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{h_val}</td>")
-                    
-                html_rows.append("<tr>" + "".join(tds) + "</tr>")
-                
-            table_header = """
-            <thead>
-                <tr style="background-color: #f1f3f4;">
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">날짜</th>
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">요일</th>
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #F8F9FA;">메모</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E3F2FD;">보쉬충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E8F5E9;">세종20홀충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #FFF3E0;">세종6홀충전기</th>
-                </tr>
-                <tr style="background-color: #f9f9f9;">
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">시간</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">시간</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">시간</th>
-                </tr>
-            </thead>
-            """
-            
-            custom_table_html = f"""
-            <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd;">
-                <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 14px;">
-                    {table_header}
-                    <tbody>
-                        {"".join(html_rows)}
-                    </tbody>
-                </table>
-            </div>
-            """
-            
-            st.markdown(custom_table_html, unsafe_allow_html=True)
+            # Streamlit 기본 데이터프레임으로 안전하게 렌더링 (에러 방지 및 깔끔한 출력)
+            table_height = max(400, len(df_matrix) * 35 + 40)
+            st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ 전체 일정 초기화"):
