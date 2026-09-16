@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 자동 배정 시스템 (다중 장비 통합 관리)")
-st.markdown("장비별(보쉬충전기, 세종20홀충전기, 세종6홀충전기)로 근무 시간 규칙 및 예외 휴무일을 반영하여 일정을 자동 배정합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (장비별 가로 배치)")
+st.markdown("날짜별로 보쉬충전기, 세종20홀충전기, 세종6홀충전기의 생산 현황을 가로로 한눈에 비교합니다.")
 
 # Supabase 연동 설정
 try:
@@ -26,7 +26,7 @@ WORK_HOURS = {
     6: 0    # 일 (휴무)
 }
 
-tab1, tab2 = st.tabs(["📅 생산 일정 등록 및 통합 현황", "🏖️ 예외 휴무일(명절/휴가) 관리"])
+tab1, tab2 = st.tabs(["📅 생산 일정 등록 및 통합 매트릭스", "🏖️ 예외 휴무일(명절/휴가) 관리"])
 
 with tab1:
     with st.form("schedule_form"):
@@ -69,7 +69,6 @@ with tab1:
                     current_date += timedelta(days=1)
                     continue
                     
-                # 해당 날짜에 선택한 장비에 이미 배정된 시간 계산 (장비별로 슬롯 관리)
                 used_on_day = 0
                 if not existing_schedule.empty and 'target_date' in existing_schedule.columns and 'equipment' in existing_schedule.columns:
                     day_eq_rows = existing_schedule[(existing_schedule['target_date'] == date_str) & (existing_schedule['equipment'] == equipment)]
@@ -99,18 +98,59 @@ with tab1:
             if allocations:
                 supabase.table("production_schedule").insert(allocations).execute()
                 st.success(f"✨ [{equipment}] [{product_name} / 제조번호: {batch_no}] 일정이 성공적으로 배정되었습니다!")
-                st.dataframe(pd.DataFrame(allocations), use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📅 전체 장비 통합 생산 일정 현황")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (가로 배치)")
+    
     if supabase:
         try:
             all_data_res = supabase.table("production_schedule").select("*").order("target_date").execute()
             if all_data_res.data:
-                df_all = pd.DataFrame(all_data_res.data)
-                # 컬럼 순서 보기 쉽게 정렬
-                display_cols = ['equipment', 'target_date', 'weekday', 'product_name', 'batch_no', 'allocated_hours']
-                st.dataframe(df_all[[c for c in display_cols if c in df_all.columns]], use_container_width=True)
+                df_raw = pd.DataFrame(all_data_res.data)
+                
+                # 날짜 및 요일별, 장비별로 데이터 집계 (같은 날 같은 장비에 여러 블록이 있을 경우 처리)
+                # 여기서는 제품명/제조번호를 보기 좋게 조합하거나 첫 번째 값을 가져오고 소요시간은 합산합니다.
+                pivot_rows = []
+                unique_dates = sorted(df_raw['target_date'].unique())
+                
+                equipments = ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"]
+                
+                for d in unique_dates:
+                    row_data = {'날짜': d}
+                    df_d = df_raw[df_raw['target_date'] == d]
+                    
+                    # 요일 가져오기
+                    row_data['요일'] = df_d['weekday'].iloc[0] if not df_d.empty else ''
+                    
+                    for eq in equipments:
+                        df_eq = df_d[df_d['equipment'] == eq]
+                        if not df_eq.empty:
+                            # 해당 일자에 해당 장비로 생산하는 제품명, 제조번호, 총 소요시간 집계
+                            prod_list = ", ".join(df_eq['product_name'].unique())
+                            batch_list = ", ".join(df_eq['batch_no'].unique())
+                            total_h = df_eq['allocated_hours'].sum()
+                            
+                            row_data[f"{eq}_제품명"] = prod_list
+                            row_data[f"{eq}_제조번호"] = batch_list
+                            row_data[f"{eq}_소요시간(h)"] = total_h
+                        else:
+                            row_data[f"{eq}_제품명"] = "-"
+                            row_data[f"{eq}_제조번호"] = "-"
+                            row_data[f"{eq}_소요시간(h)"] = 0
+                            
+                    pivot_rows.append(row_data)
+                    
+                df_matrix = pd.DataFrame(pivot_rows)
+                
+                # 컬럼 순서 정렬 (날짜, 요일, 보쉬(3), 세종20홀(3), 세종6홀(3))
+                ordered_cols = ['날짜', '요일', 
+                                '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
+                                '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
+                                '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
+                
+                # 존재하는 컬럼만 필터링하여 출력
+                final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
+                st.dataframe(df_matrix[final_display_cols], use_container_width=True)
                 
                 if st.button("🗑️ 전체 일정 초기화"):
                     supabase.table("production_schedule").delete().neq("id", 0).execute()
