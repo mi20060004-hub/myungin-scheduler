@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (장비별 일정 관리 및 삭제)")
-st.markdown("장비별 근무 시간 동적 설정, 휴무일 예외 처리, 그리고 **특정 제조번호/날짜 이후 일정 삭제** 기능을 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (장비별 일정 관리 및 특정 품목 이후 삭제)")
+st.markdown("장비별 근무 시간 동적 설정, 휴무일 예외 처리, 그리고 **특정 제품명 및 제조번호 이후 일정 일괄 삭제** 기능을 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -38,8 +38,8 @@ for eq in equipments:
             eq_hours[idx] = hours
         EQUIPMENT_WORK_HOURS[eq] = eq_hours
 
-# 탭 구성 (등록/현황, 일정 삭제 관리, 휴무일 관리)
-tab1, tab2, tab3 = st.tabs(["📅 생산 일정 등록 및 현황", "✂️ 특정 일정(로트/날짜 이후) 삭제 관리", "🏖️ 예외 휴무일(명절/휴가) 관리"])
+# 탭 구성
+tab1, tab2, tab3 = st.tabs(["📅 생산 일정 등록 및 현황", "✂️ 특정 제품/로트 이후 일정 삭제 관리", "🏖️ 예외 휴무일(명절/휴가) 관리"])
 
 with tab1:
     with st.form("schedule_form"):
@@ -165,58 +165,49 @@ with tab1:
             st.warning(f"데이터를 불러오는 중 오류 발생: {e}")
 
 with tab2:
-    st.subheader("✂️ 특정 제조번호(로트) 또는 날짜 이후 일정 일괄 삭제")
-    st.markdown("일정 변경으로 인해 특정 로트나 특정 날짜부터 그 이후에 등록된 일정을 한 번에 삭제할 수 있습니다.")
+    st.subheader("✂️ 특정 제품명 및 제조번호(로트) 이후 일정 일괄 삭제")
+    st.markdown("일정 변경 시, 특정 장비에서 **지정하고자 하는 제품명과 제조번호**가 시작되는 시점을 찾아 그 이후의 모든 일정을 한 번에 삭제합니다.")
     
     with st.form("delete_form"):
         del_equipment = st.selectbox("대상 장비 선택", equipments, key="del_eq")
-        del_mode = st.radio("삭제 기준 선택", ["특정 제조번호(로트) 이후 일정 삭제", "특정 날짜 이후 일정 삭제"])
+        target_product = st.text_input("삭제 기준 제품명 입력", placeholder="예: 드록틴30")
+        target_batch = st.text_input("삭제 기준 제조번호 입력", placeholder="예: 26005")
         
-        target_batch = st.text_input("기준 제조번호 입력 (예: 26005)", placeholder="제조번호 기준 삭제 시 입력")
-        target_date = st.date_input("기준 날짜 입력", value=datetime.today())
-        
-        submitted_del = st.form_submit_button("🔥 조건에 맞는 일정 삭제 실행", type="primary")
+        submitted_del = st.form_submit_button("🔥 해당 제품/로트 이후 일정 삭제 실행", type="primary")
         
     if submitted_del and supabase:
-        try:
-            # 해당 장비의 전체 일정 가져오기
-            res = supabase.table("production_schedule").select("*").eq("equipment", del_equipment).order("target_date").execute()
-            if res.data:
-                df_eq_sched = pd.DataFrame(res.data)
-                
-                ids_to_delete = []
-                
-                if "제조번호" in del_mode:
-                    if not target_batch:
-                        st.warning("기준 제조번호를 입력해주세요.")
-                    else:
-                        # 해당 제조번호가 나타나는 첫 번째 행의 날짜 또는 ID를 찾음
-                        matched = df_eq_sched[df_eq_sched['batch_no'] == target_batch]
-                        if not matched.empty:
-                            # 해당 제조번호가 시작되는 날짜 이후의 모든 기록 선정
-                            start_del_date = matched['target_date'].min()
-                            target_rows = df_eq_sched[df_eq_sched['target_date'] >= start_del_date]
-                            ids_to_delete = target_rows['id'].tolist()
-                        else:
-                            st.error(f"입력하신 제조번호 [{target_batch}]를 해당 장비 일정에서 찾을 수 없습니다.")
-                else:
-                    # 날짜 기준 삭제 (선택한 날짜 이후 모든 기록)
-                    target_date_str = target_date.strftime('%Y-%m-%d')
-                    target_rows = df_eq_sched[df_eq_sched['target_date'] >= target_date_str]
-                    ids_to_delete = target_rows['id'].tolist()
+        if not target_product or not target_batch:
+            st.error("삭제 기준이 될 제품명과 제조번호를 모두 입력해주세요.")
+        else:
+            try:
+                res = supabase.table("production_schedule").select("*").eq("equipment", del_equipment).order("target_date").execute()
+                if res.data:
+                    df_eq_sched = pd.DataFrame(res.data)
                     
-                if ids_to_delete:
-                    # Supabase에서 해당 ID 목록 일괄 삭제
-                    for item_id in ids_to_delete:
-                        supabase.table("production_schedule").delete().eq("id", item_id).execute()
-                    st.success(f"✨ [{del_equipment}] 기준 이후의 일정이 성공적으로 삭제되었습니다! (총 {len(ids_to_delete)}개 블록 삭제됨)")
-                    st.rerun()
+                    # 입력한 제품명과 제조번호가 일치하는 행 탐색
+                    matched = df_eq_sched[
+                        (df_eq_sched['product_name'].str.contains(target_product, na=False)) & 
+                        (df_eq_sched['batch_no'] == target_batch)
+                    ]
+                    
+                    if not matched.empty:
+                        # 해당 제품/로트가 처음 나타나는 날짜 확인
+                        start_del_date = matched['target_date'].min()
+                        # 그 날짜 이후의 모든 기록 선정
+                        target_rows = df_eq_sched[df_eq_sched['target_date'] >= start_del_date]
+                        ids_to_delete = target_rows['id'].tolist()
+                        
+                        if ids_to_delete:
+                            for item_id in ids_to_delete:
+                                supabase.table("production_schedule").delete().eq("id", item_id).execute()
+                            st.success(f"✨ [{del_equipment}] [{target_product} / {target_batch}] 이후의 일정이 성공적으로 삭제되었습니다! (총 {len(ids_to_delete)}개 블록 삭제됨)")
+                            st.rerun()
+                    else:
+                        st.error(f"입력하신 조건([{del_equipment}] 제품명: {target_product}, 제조번호: {target_batch})에 해당하는 일정을 찾을 수 없습니다.")
                 else:
-                    st.info("조건에 일치하는 삭제 대상 일정이 없습니다.")
-            else:
-                st.info("해당 장비에 등록된 일정이 없습니다.")
-        except Exception as e:
-            st.error(f"삭제 처리 중 오류 발생: {e}")
+                    st.info("해당 장비에 등록된 일정이 없습니다.")
+            except Exception as e:
+                st.error(f"삭제 처리 중 오류 발생: {e}")
 
 with tab3:
     st.subheader("🏖️ 회사 휴무일 (명절, 창립기념일, 하계휴가 등) 등록")
