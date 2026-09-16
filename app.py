@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (작업 시간순 정렬)")
-st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **실제 공정 진행 순서(세팅 ➔ 해당 본 생산)로 정렬된 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (본 품명 중심 깔끔한 표시)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **제품명 칸에 본 품명만 깔끔하게 표시되는 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -156,7 +156,7 @@ with tab1:
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (시간순 정렬)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표")
     
     if supabase:
         try:
@@ -175,17 +175,40 @@ with tab1:
                     for eq in equipments:
                         df_eq = df_d[df_d['equipment'] == eq]
                         if not df_eq.empty:
-                            # [핵심] 데이터가 등록된 시간(created_at) 순서대로 정렬하여 세팅과 본생산이 올바른 시퀀스를 유지하도록 함
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            prod_list = ", ".join(df_eq['product_name'].tolist())
-                            batch_list = ", ".join(df_eq['batch_no'].tolist())
-                            total_h = df_eq['allocated_hours'].sum()
+                            # [핵심 수정] 제품명 및 제조번호 목록을 추출할 때 세팅([세팅], (세팅)) 항목은 표기에서 제외하고 순수 본 품명/로트만 추출
+                            pure_prods = []
+                            pure_batchs = []
                             
-                            row_data[f"{eq}_제품명"] = prod_list
-                            row_data[f"{eq}_제조번호"] = batch_list
-                            row_data[f"{eq}_소요시간(h)"] = total_h
+                            for _, r in df_eq.iterrows():
+                                p_name = str(r['product_name'])
+                                b_no = str(r['batch_no'])
+                                
+                                # 세팅 글자가 포함되지 않은 순수 본품명 추출
+                                if "[세팅]" not in p_name:
+                                    if p_name not in pure_prods:
+                                        pure_prods.append(p_name)
+                                        
+                                # 세팅 글자가 포함되지 않은 순수 제조번호 추출
+                                if "(세팅)" not in b_no:
+                                    if b_no not in pure_batchs:
+                                        pure_batchs.append(b_no)
+                                        
+                            # 만약 해당 날짜에 세팅만 있고 본품이 아직 안 들어왔거나 한 경우를 대비한 예외 처리
+                            if not pure_prods:
+                                # 세팅 이름에서 [세팅] 떼고 보여주기
+                                fallback_prods = [p.replace("[세팅] ", "").replace("[세팅]", "") for p in df_eq['product_name'].unique()]
+                                pure_prods = list(dict.fromkeys(fallback_prods))
+                                
+                            if not pure_batchs:
+                                fallback_batchs = [b.replace("(세팅)", "") for b in df_eq['batch_no'].unique()]
+                                pure_batchs = list(dict.fromkeys(fallback_batchs))
+
+                            row_data[f"{eq}_제품명"] = ", ".join(pure_prods)
+                            row_data[f"{eq}_제조번호"] = ", ".join(pure_batchs)
+                            row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
                         else:
                             row_data[f"{eq}_제품명"] = "-"
                             row_data[f"{eq}_제조번호"] = "-"
