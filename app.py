@@ -94,8 +94,6 @@ if submitted:
         holiday_res = supabase.table("production_holidays").select("*").execute()
         holiday_dates = set(item['holiday_date'] for item in holiday_res.data) if holiday_res.data else set()
 
-        # 사이드바 입력 후 즉시 반영된 근무시간 규칙 가져오기 위한 기본 딕셔너리
-        # (아래 사이드바 루프에서 생성된 EQUIPMENT_WORK_HOURS가 사용됨)
         work_hours_rule = st.session_state.get('EQUIPMENT_WORK_HOURS', {}).get(equipment, {0:10, 1:10, 2:10, 3:10, 4:8, 5:5 if equipment=="보쉬충전기" else 0, 6:0})
 
         remaining_hours = total_hours
@@ -128,7 +126,6 @@ if submitted:
                 'equipment': equipment,
                 'product_name': f"[세팅] {product_name}",
                 'batch_no': f"{batch_no}(세팅)",
-                *
                 'target_date': date_str,
                 'weekday': ['월','화','수','목','금','토','일'][weekday],
                 'allocated_hours': float(assign_setup)
@@ -205,7 +202,6 @@ for eq in equipments:
             eq_hours[idx] = hours
         EQUIPMENT_WORK_HOURS[eq] = eq_hours
 
-# 세션에 규칙 저장하여 폼 제출 시 참조 가능하도록 함
 st.session_state['EQUIPMENT_WORK_HOURS'] = EQUIPMENT_WORK_HOURS
 
 # 탭 구성 (메인 화면)
