@@ -319,7 +319,7 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # HTML 표 렌더링 시 문법 오류 방지를 위한 정돈된 구조 적용
+            # HTML 행 생성
             html_rows = []
             for idx, r in df_matrix.iterrows():
                 current_date = date_range[idx]
@@ -377,6 +377,7 @@ with tab1:
             </thead>
             """
             
+            # 전체 HTML을 하나의 문자열로 결합하여 st.markdown으로 안전하게 출력
             custom_table_html = f"""
             <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd;">
                 <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 14px;">
