@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (제품명 선택 시 소요시간 자동 연동)")
-st.markdown("등록된 제품명을 선택하면 기준 소요시간이 자동으로 입력되며, 본 생산 제조번호만 깔끔하게 표시되는 현황표를 제공합니다.")
+st.title("🏭 캡슐제품 생산계획")
+st.markdown("등록된 제품명을 선택하면 기준 소요시간 자동 입력)
 
 # Supabase 연동 설정
 try:
