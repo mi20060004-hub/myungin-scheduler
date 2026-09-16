@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (장비별 근무 시간 동적 설정)")
-st.markdown("사이드바에서 장비별 요일별 가용 시간을 직접 설정하고, 예외 휴무일을 반영하여 일정을 자동 배정합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (장비별 일정 관리 및 삭제)")
+st.markdown("장비별 근무 시간 동적 설정, 휴무일 예외 처리, 그리고 **특정 제조번호/날짜 이후 일정 삭제** 기능을 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -16,14 +16,12 @@ try:
 except Exception:
     supabase = None
 
-# --- 사이드바: 장비별 요일 가용 시간 동적 설정 ---
+# 사이드바: 장비별 요일 가용 시간 동적 설정
 st.sidebar.header("⚙️ 장비별 요일 근무 시간 설정")
 equipments = ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"]
 days = ['월', '화', '수', '목', '금', '토', '일']
 
 EQUIPMENT_WORK_HOURS = {}
-
-# 기본값 프리셋 (보쉬: 토 5h / 세종: 토,일 0h)
 default_presets = {
     "보쉬충전기": [10, 10, 10, 10, 8, 5, 0],
     "세종20홀충전기": [10, 10, 10, 10, 8, 0, 0],
@@ -35,19 +33,19 @@ for eq in equipments:
         eq_hours = {}
         defaults = default_presets[eq]
         for idx, day in enumerate(days):
-            # 문법 오류가 나던 f-string 구문 수정 완료
             label_text = day + "요일 가용 시간 (h)"
             hours = st.number_input(label_text, min_value=0.0, max_value=24.0, value=float(defaults[idx]), step=1.0, key=f"{eq}_{day}")
             eq_hours[idx] = hours
         EQUIPMENT_WORK_HOURS[eq] = eq_hours
 
-tab1, tab2 = st.tabs(["📅 생산 일정 등록 및 통합 매트릭스", "🏖️ 예외 휴무일(명절/휴가) 관리"])
+# 탭 구성 (등록/현황, 일정 삭제 관리, 휴무일 관리)
+tab1, tab2, tab3 = st.tabs(["📅 생산 일정 등록 및 현황", "✂️ 특정 일정(로트/날짜 이후) 삭제 관리", "🏖️ 예외 휴무일(명절/휴가) 관리"])
 
 with tab1:
     with st.form("schedule_form"):
         col_eq, col_prd = st.columns(2)
         with col_eq:
-            equipment = st.selectbox("장비 선택", equipments)
+            equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
             product_name = st.text_input("제품명", placeholder="예: 둘록세틴 장용정")
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
@@ -62,18 +60,14 @@ with tab1:
         elif not supabase:
             st.error("Supabase 연결 정보를 확인해주세요.")
         else:
-            # 1. 기존 생산 일정 불러오기
             schedule_res = supabase.table("production_schedule").select("*").execute()
             existing_schedule = pd.DataFrame(schedule_res.data) if schedule_res.data else pd.DataFrame(columns=['target_date', 'allocated_hours'])
 
-            # 2. 등록된 예외 휴무일 불러오기
             holiday_res = supabase.table("production_holidays").select("*").execute()
             holiday_dates = set(item['holiday_date'] for item in holiday_res.data) if holiday_res.data else set()
 
-            # 사이드바에서 설정한 해당 장비의 가용 시간 규칙 가져오기
             work_hours_rule = EQUIPMENT_WORK_HOURS.get(equipment, {})
 
-            # 자동 할당 알고리즘
             remaining_hours = total_hours
             current_date = pd.to_datetime(start_date)
             allocations = []
@@ -115,7 +109,8 @@ with tab1:
 
             if allocations:
                 supabase.table("production_schedule").insert(allocations).execute()
-                st.success(f"✨ [{equipment}] [{product_name} / 제조번호: {batch_no}] 일정이 설정된 근무 규칙에 맞게 성공적으로 배정되었습니다!")
+                st.success(f"✨ [{equipment}] [{product_name} / 제조번호: {batch_no}] 일정이 성공적으로 배정되었습니다!")
+                st.rerun()
 
     st.markdown("---")
     st.subheader("📅 날짜별 장비 통합 생산 현황표 (가로 배치)")
@@ -170,9 +165,63 @@ with tab1:
             st.warning(f"데이터를 불러오는 중 오류 발생: {e}")
 
 with tab2:
+    st.subheader("✂️ 특정 제조번호(로트) 또는 날짜 이후 일정 일괄 삭제")
+    st.markdown("일정 변경으로 인해 특정 로트나 특정 날짜부터 그 이후에 등록된 일정을 한 번에 삭제할 수 있습니다.")
+    
+    with st.form("delete_form"):
+        del_equipment = st.selectbox("대상 장비 선택", equipments, key="del_eq")
+        del_mode = st.radio("삭제 기준 선택", ["특정 제조번호(로트) 이후 일정 삭제", "특정 날짜 이후 일정 삭제"])
+        
+        target_batch = st.text_input("기준 제조번호 입력 (예: 26005)", placeholder="제조번호 기준 삭제 시 입력")
+        target_date = st.date_input("기준 날짜 입력", value=datetime.today())
+        
+        submitted_del = st.form_submit_button("🔥 조건에 맞는 일정 삭제 실행", type="primary")
+        
+    if submitted_del and supabase:
+        try:
+            # 해당 장비의 전체 일정 가져오기
+            res = supabase.table("production_schedule").select("*").eq("equipment", del_equipment).order("target_date").execute()
+            if res.data:
+                df_eq_sched = pd.DataFrame(res.data)
+                
+                ids_to_delete = []
+                
+                if "제조번호" in del_mode:
+                    if not target_batch:
+                        st.warning("기준 제조번호를 입력해주세요.")
+                    else:
+                        # 해당 제조번호가 나타나는 첫 번째 행의 날짜 또는 ID를 찾음
+                        matched = df_eq_sched[df_eq_sched['batch_no'] == target_batch]
+                        if not matched.empty:
+                            # 해당 제조번호가 시작되는 날짜 이후의 모든 기록 선정
+                            start_del_date = matched['target_date'].min()
+                            target_rows = df_eq_sched[df_eq_sched['target_date'] >= start_del_date]
+                            ids_to_delete = target_rows['id'].tolist()
+                        else:
+                            st.error(f"입력하신 제조번호 [{target_batch}]를 해당 장비 일정에서 찾을 수 없습니다.")
+                else:
+                    # 날짜 기준 삭제 (선택한 날짜 이후 모든 기록)
+                    target_date_str = target_date.strftime('%Y-%m-%d')
+                    target_rows = df_eq_sched[df_eq_sched['target_date'] >= target_date_str]
+                    ids_to_delete = target_rows['id'].tolist()
+                    
+                if ids_to_delete:
+                    # Supabase에서 해당 ID 목록 일괄 삭제
+                    for item_id in ids_to_delete:
+                        supabase.table("production_schedule").delete().eq("id", item_id).execute()
+                    st.success(f"✨ [{del_equipment}] 기준 이후의 일정이 성공적으로 삭제되었습니다! (총 {len(ids_to_delete)}개 블록 삭제됨)")
+                    st.rerun()
+                else:
+                    st.info("조건에 일치하는 삭제 대상 일정이 없습니다.")
+            else:
+                st.info("해당 장비에 등록된 일정이 없습니다.")
+        except Exception as e:
+            st.error(f"삭제 처리 중 오류 발생: {e}")
+
+with tab3:
     st.subheader("🏖️ 회사 휴무일 (명절, 창립기념일, 하계휴가 등) 등록")
     with st.form("holiday_form"):
-        holiday_date = st.date_input("휴무 지정일")
+        holiday_date = st.date_input("휴무 지정일", key="hol_date")
         reason = st.text_input("휴무 사유", placeholder="예: 추석 연휴, 하계 휴가 등")
         submitted_holiday = st.form_submit_button("➕ 휴무일 추가하기")
         
