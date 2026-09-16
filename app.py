@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (셀 내 줄바꿈 적용)")
-st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **셀 안에서 줄바꿈된 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (HTML 셀 줄바꿈 적용)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **셀 안에서 완벽히 줄바꿈된 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -156,7 +156,7 @@ with tab1:
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (셀 내 줄바꿈 적용)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (줄바꿈 적용)")
     
     if supabase:
         try:
@@ -175,9 +175,9 @@ with tab1:
                     for eq in equipments:
                         df_eq = df_d[df_d['equipment'] == eq]
                         if not df_eq.empty:
-                            # [핵심] 콤마 대신 줄바꿈 문자(\n)로 여러 항목을 세로로 나눔
-                            prod_list = "\n".join(df_eq['product_name'].unique())
-                            batch_list = "\n".join(df_eq['batch_no'].unique())
+                            # [핵심] HTML 줄바꿈 태그(<br>)를 사용하여 여러 항목을 세로로 확실하게 분리
+                            prod_list = "<br>".join(df_eq['product_name'].unique())
+                            batch_list = "<br>".join(df_eq['batch_no'].unique())
                             total_h = df_eq['allocated_hours'].sum()
                             
                             row_data[f"{eq}_제품명"] = prod_list
@@ -199,9 +199,10 @@ with tab1:
                 
                 final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
                 
-                # Streamlit 표에서 줄바꿈이 셀 안에 반영되도록 스타일 적용
-                st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=400)
+                # HTML 마크업 표로 렌더링하여 셀 내 줄바꿈(<br>)이 브라우저에서 확실히 적용되도록 함
+                st.markdown(df_matrix[final_display_cols].to_html(escape=False, index=True), unsafe_allow_html=True)
                 
+                st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🗑️ 전체 일정 초기화"):
                     supabase.table("production_schedule").delete().neq("id", 0).execute()
                     st.rerun()
