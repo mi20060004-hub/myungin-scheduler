@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (장비별 일정 관리 및 특정 품목 이후 삭제)")
-st.markdown("장비별 근무 시간 동적 설정, 휴무일 예외 처리, 그리고 **특정 제품명 및 제조번호 이후 일정 일괄 삭제** 기능을 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (장비 세팅 시간 포함)")
+st.markdown("장비별 근무 시간, 예외 휴무일, **품목 변경 시 세팅(전환) 시간**, 그리고 특정 품목 이후 삭제 기능을 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -49,7 +49,12 @@ with tab1:
             product_name = st.text_input("제품명", placeholder="예: 둘록세틴 장용정")
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
-            total_hours = st.number_input("총 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=15.0, step=1.0)
+            
+        col_time1, col_time2 = st.columns(2)
+        with col_time1:
+            setup_hours = st.number_input("장비 세팅 시간 (시간)", min_value=0.0, max_value=24.0, value=1.0, step=0.5, help="품목 변경 시 필요한 준비/세팅 시간")
+        with col_time2:
+            total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=15.0, step=1.0)
             
         start_date = st.date_input("시작 예정일", value=datetime.today())
         submitted = st.form_submit_button("🚀 일정 자동 계산 및 DB 저장")
@@ -68,11 +73,14 @@ with tab1:
 
             work_hours_rule = EQUIPMENT_WORK_HOURS.get(equipment, {})
 
+            # 세팅 시간이 있는 경우, 첫 번째 날(또는 배정 시작일)에 세팅 시간을 먼저 할당
             remaining_hours = total_hours
             current_date = pd.to_datetime(start_date)
             allocations = []
             
-            while remaining_hours > 0:
+            # 1. 세팅 시간 먼저 배정 로직 처리
+            remaining_setup = setup_hours
+            while remaining_setup > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
                 weekday = current_date.weekday()
                 
@@ -87,13 +95,51 @@ with tab1:
                     used_on_day = day_eq_rows['allocated_hours'].sum()
                     
                 available_on_day = daily_capacity - used_on_day
+                if available_on_day <= 0:
+                    current_date += timedelta(days=1)
+                    continue
+                    
+                assign_setup = min(remaining_setup, available_on_day)
+                allocations.append({
+                    'equipment': equipment,
+                    'product_name': f"[세팅] {product_name}",
+                    'batch_no': f"{batch_no}(세팅)",
+                    'target_date': date_str,
+                    'weekday': days[weekday],
+                    'allocated_hours': float(assign_setup)
+                })
                 
+                remaining_setup -= assign_setup
+                if remaining_setup > 0:
+                    current_date += timedelta(days=1)
+            
+            # 2. 본 생산 소요 시간 배정 로직 처리
+            while remaining_hours > 0:
+                date_str = current_date.strftime('%Y-%m-%d')
+                weekday = current_date.weekday()
+                
+                daily_capacity = work_hours_rule.get(weekday, 0)
+                if date_str in holiday_dates or daily_capacity == 0:
+                    current_date += timedelta(days=1)
+                    continue
+                    
+                # 방금 세팅으로 배정된 시간도 당일 사용량에 포함하여 계산
+                used_on_day = 0
+                if not existing_schedule.empty and 'target_date' in existing_schedule.columns and 'equipment' in existing_schedule.columns:
+                    day_eq_rows = existing_schedule[(existing_schedule['target_date'] == date_str) & (existing_schedule['equipment'] == equipment)]
+                    used_on_day = day_eq_rows['allocated_hours'].sum()
+                
+                # 이번 실행에서 방금 추가된 allocations 중 같은 날짜의 시간도 합산
+                temp_df = pd.DataFrame(allocations)
+                if not temp_df.empty:
+                    used_on_day += temp_df[temp_df['target_date'] == date_str]['allocated_hours'].sum()
+                    
+                available_on_day = daily_capacity - used_on_day
                 if available_on_day <= 0:
                     current_date += timedelta(days=1)
                     continue
                     
                 assign_hours = min(remaining_hours, available_on_day)
-                
                 allocations.append({
                     'equipment': equipment,
                     'product_name': product_name,
@@ -109,7 +155,7 @@ with tab1:
 
             if allocations:
                 supabase.table("production_schedule").insert(allocations).execute()
-                st.success(f"✨ [{equipment}] [{product_name} / 제조번호: {batch_no}] 일정이 성공적으로 배정되었습니다!")
+                st.success(f"✨ [{equipment}] 세팅 시간({setup_hours}h) 및 본 생산 일정이 성공적으로 배정되었습니다!")
                 st.rerun()
 
     st.markdown("---")
@@ -184,16 +230,13 @@ with tab2:
                 if res.data:
                     df_eq_sched = pd.DataFrame(res.data)
                     
-                    # 입력한 제품명과 제조번호가 일치하는 행 탐색
                     matched = df_eq_sched[
                         (df_eq_sched['product_name'].str.contains(target_product, na=False)) & 
                         (df_eq_sched['batch_no'] == target_batch)
                     ]
                     
                     if not matched.empty:
-                        # 해당 제품/로트가 처음 나타나는 날짜 확인
                         start_del_date = matched['target_date'].min()
-                        # 그 날짜 이후의 모든 기록 선정
                         target_rows = df_eq_sched[df_eq_sched['target_date'] >= start_del_date]
                         ids_to_delete = target_rows['id'].tolist()
                         
