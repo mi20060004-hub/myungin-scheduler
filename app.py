@@ -319,7 +319,7 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # HTML 표 렌더링 방식으로 휴무일(일요일, 예외휴무)의 날짜, 요일, 휴무일 안내 글자를 빨간색으로 완벽하게 지정
+            # HTML 표 렌더링 시 문법 오류 방지를 위한 정돈된 구조 적용
             html_rows = []
             for idx, r in df_matrix.iterrows():
                 current_date = date_range[idx]
@@ -328,7 +328,6 @@ with tab1:
                 w_str = days[w_idx]
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 
-                # 휴무일인 경우 날짜와 요일에 빨간색 스타일 적용
                 if is_off:
                     d_cell = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
                     w_cell = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
@@ -344,7 +343,6 @@ with tab1:
                     b_val = str(r.get(f"{eq}_제조번호", "-"))
                     h_val = str(r.get(f"{eq}_소요시간(h)", 0))
                     
-                    # 휴무일 안내 글자([일요일 휴무], [추석] 등)인 경우 빨간색 글씨로 감싸기
                     if is_off and p_val.startswith("[") and p_val.endswith("]"):
                         p_cell = f"<span style='color:red; font-weight:bold;'>{p_val}</span>"
                     else:
