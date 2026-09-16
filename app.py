@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 및 개별 메모를 각각 등록하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 및 개별 메모를 각각 등록하고, 간결한 컬럼명으로 정리된 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -193,14 +193,11 @@ if submitted_memo and supabase:
         date_str = memo_date.strftime('%Y-%m-%d')
         weekday_str = ['월','화','수','목','금','토','일'][memo_date.weekday()]
         try:
-            # 해당 날짜에 이미 레코드가 있는지 확인
             existing_res = supabase.table("production_schedule").select("*").eq("target_date", date_str).execute()
             
             if existing_res.data:
-                # 기존 레코드가 있으면 해당 날짜 행들의 note 값 업데이트
                 supabase.table("production_schedule").update({"note": memo_text}).eq("target_date", date_str).execute()
             else:
-                # 기존 레코드가 없으면 가상의 빈 일정 행으로 note만 생성하여 저장
                 supabase.table("production_schedule").insert({
                     "equipment": "보쉬충전기",
                     "product_name": "-",
@@ -297,8 +294,8 @@ with tab1:
                         if notes_list:
                             note_val = ", ".join(notes_list)
 
-                row_data = {'날짜': display_date, '요일': display_weekday, '메모(note)': note_val}
-                csv_row = {'날짜': d_str, '요일': w_str, '메모(note)': note_val}
+                row_data = {'날짜': display_date, '요일': display_weekday, '메모': note_val}
+                csv_row = {'날짜': d_str, '요일': w_str, '메모': note_val}
 
                 for eq in equipments:
                     if not df_raw.empty:
@@ -326,13 +323,14 @@ with tab1:
                         batch_str = ", ".join(batch_list) if batch_list else "-"
                         total_h_val = df_eq['allocated_hours'].sum()
 
+                        # 컬럼명을 짧게 변경 (예: 보쉬충전기_제품명 -> 제품명 등)
                         row_data[f"{eq}_제품명"] = prod_str
                         row_data[f"{eq}_제조번호"] = batch_str
-                        row_data[f"{eq}_소요시간(h)"] = total_h_val
+                        row_data[f"{eq}_시간"] = total_h_val
                         
                         csv_row[f"{eq}_제품명"] = prod_str
                         csv_row[f"{eq}_제조번호"] = batch_str
-                        csv_row[f"{eq}_소요시간(h)"] = total_h_val
+                        csv_row[f"{eq}_시간"] = total_h_val
                     else:
                         if is_off and off_reason:
                             off_text = f"[{off_reason}]"
@@ -344,9 +342,9 @@ with tab1:
                             
                         row_data[f"{eq}_제조번호"] = "-"
                         csv_row[f"{eq}_제조번호"] = "-"
-                        row_data[f"{eq}_소요시간(h)"] = 0
+                        row_data[f"{eq}_시간"] = 0
                         
-                        csv_row[f"{eq}_소요시간(h)"] = 0
+                        csv_row[f"{eq}_시간"] = 0
 
                 pivot_rows.append(row_data)
                 csv_rows.append(csv_row)
@@ -354,10 +352,11 @@ with tab1:
             df_matrix = pd.DataFrame(pivot_rows)
             df_csv = pd.DataFrame(csv_rows)
 
-            ordered_cols = ['날짜', '요일', '메모(note)',
-                            '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
-                            '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
-                            '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
+            # 짧아진 컬럼명 규칙으로 순서 재배치
+            ordered_cols = ['날짜', '요일', '메모',
+                            '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_시간',
+                            '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_시간',
+                            '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_시간']
 
             final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
 
