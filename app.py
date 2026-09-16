@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from supabase import create_client, Client
-import io
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 휴무일 안내 글자까지 빨간색으로 강조된 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -290,17 +289,18 @@ with tab1:
                         csv_row[f"{eq}_소요시간(h)"] = total_h_val
                     else:
                         if is_off and off_reason:
-                            off_text = f"[{off_reason}]"
-                            row_data[f"{eq}_제품명"] = f"<span style='color:gray;'>{off_text}</span>"
-                            csv_row[f"{eq}_제품명"] = off_text
+                            # 휴무일 안내 글자도 빨간색으로 표시되도록 수정
+                            off_text = f"<span style='color:red; font-weight:bold;'>[{off_reason}]</span>"
+                            row_data[f"{eq}_제품명"] = off_text
+                            csv_row[f"{eq}_제품명"] = f"[{off_reason}]"
                         else:
                             row_data[f"{eq}_제품명"] = "-"
                             csv_row[f"{eq}_제품명"] = "-"
                             
                         row_data[f"{eq}_제조번호"] = "-"
+                        csv_row[f"{eq}_제조번호"] = "-"
                         row_data[f"{eq}_소요시간(h)"] = 0
                         
-                        csv_row[f"{eq}_제조번호"] = "-"
                         csv_row[f"{eq}_소요시간(h)"] = 0
 
                 pivot_rows.append(row_data)
@@ -316,7 +316,6 @@ with tab1:
 
             final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
 
-            # CSV 다운로드 파일 변환 (추가 라이브러리 불필요)
             csv_data = df_csv[final_display_cols].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
             col_btn1, col_btn2 = st.columns([4, 1])
@@ -328,8 +327,39 @@ with tab1:
                     mime="text/csv"
                 )
 
-            table_height = max(300, len(df_matrix) * 35 + 40)
-            st.markdown(df_matrix[final_display_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
+            html_table = df_matrix[final_display_cols].to_html(escape=False, index=False)
+            
+            styled_html = f"""
+            <style>
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                }}
+                th {{
+                    background-color: #f1f3f4;
+                    text-align: center !important;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }}
+                td {{
+                    text-align: center !important;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                }}
+                th:nth-child(3), th:nth-child(4), th:nth-child(5) {{
+                    background-color: #E3F2FD !important;
+                }}
+                th:nth-child(6), th:nth-child(7), th:nth-child(8) {{
+                    background-color: #E8F5E9 !important;
+                }}
+                th:nth-child(9), th:nth-child(10), th:nth-child(11) {{
+                    background-color: #FFF3E0 !important;
+                }}
+            </style>
+            {html_table}
+            """
+
+            st.markdown(styled_html, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ 전체 일정 초기화"):
