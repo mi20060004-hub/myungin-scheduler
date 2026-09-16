@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 휴무일이 빨간색 글씨로 강조된 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 휴무일 행 전체가 붉은색 배경으로 강조된 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -319,7 +319,7 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # HTML 행 생성
+            # 휴무일 행 전체 배경색 및 붉은색 글씨 스타일이 적용된 HTML 표 생성
             html_rows = []
             for idx, r in df_matrix.iterrows():
                 current_date = date_range[idx]
@@ -327,6 +327,9 @@ with tab1:
                 w_idx = current_date.weekday()
                 w_str = days[w_idx]
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
+                
+                # 휴무일인 경우 행 배경색(background-color) 지정
+                row_bg_style = "background-color: #FFF5F5;" if is_off else ""
                 
                 if is_off:
                     d_cell = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
@@ -352,7 +355,7 @@ with tab1:
                     tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{b_val}</td>")
                     tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{h_val}</td>")
                     
-                html_rows.append("<tr>" + "".join(tds) + "</tr>")
+                html_rows.append(f"<tr style='{row_bg_style}'>" + "".join(tds) + "</tr>")
                 
             table_header = """
             <thead>
@@ -377,7 +380,6 @@ with tab1:
             </thead>
             """
             
-            # 전체 HTML을 하나의 문자열로 결합하여 st.markdown으로 안전하게 출력
             custom_table_html = f"""
             <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd;">
                 <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 14px;">
@@ -389,6 +391,7 @@ with tab1:
             </div>
             """
             
+            # unsafe_allow_html=True를 적용하여 HTML 표가 정상적으로 렌더링되도록 수정
             st.markdown(custom_table_html, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
