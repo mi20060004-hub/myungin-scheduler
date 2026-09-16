@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("등록된 제품명을 선택하면 기준 소요시간 자동 입력")
+st.markdown("등록된 제품명을 선택하면 기준 소요시간 자동 입력 및 2027년 4월까지의 캘린더 틀 제공")
 
 # Supabase 연동 설정
 try:
@@ -16,7 +16,7 @@ try:
 except Exception:
     supabase = None
 
-# [신규] 자주 사용하는 제품별 표준 소요시간 사전 정의 (원하는 품목을 추가/수정하실 수 있습니다)
+# 자주 사용하는 제품별 표준 소요시간 사전 정의
 DEFAULT_PRODUCT_HOURS = {
     "드록틴캡슐30": 28.0,
     "드록틴캡슐60": 14.0,
@@ -85,11 +85,8 @@ with tab1:
         col_eq, col_prd = st.columns(2)
         with col_eq:
             equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
-            
-            # [핵심] 제품명을 셀렉트박스(스크롤 선택)로 변경
             selected_product_option = st.selectbox("제품명 선택", list(DEFAULT_PRODUCT_HOURS.keys()))
             
-            # '직접 입력'을 선택한 경우에만 텍스트 박스로 상세 입력받음
             if selected_product_option == "직접 입력 (신규 품목)":
                 product_name = st.text_input("신규 제품명 직접 입력", placeholder="예: 신규약품")
             else:
@@ -97,8 +94,6 @@ with tab1:
 
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
-            
-            # 선택한 제품에 매칭되는 기본 소요시간을 자동으로 불러와서 기본값으로 세팅
             preset_hours = DEFAULT_PRODUCT_HOURS.get(selected_product_option, 15.0)
             total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=float(preset_hours), step=1.0)
             
@@ -208,67 +203,111 @@ with tab1:
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (2027년 4월까지 표시)")
     
     if supabase:
         try:
-            all_data_res = supabase.table("production_schedule").select("*").order("target_date").order("created_at").execute()
-            if all_data_res.data:
-                df_raw = pd.DataFrame(all_data_res.data)
-                
-                pivot_rows = []
-                unique_dates = sorted(df_raw['target_date'].unique())
-                
-                for d in unique_dates:
-                    row_data = {'날짜': d}
-                    df_d = df_raw[df_raw['target_date'] == d]
-                    row_data['요일'] = df_d['weekday'].iloc[0] if not df_d.empty else ''
-                    
-                    for eq in equipments:
-                        df_eq = df_d[df_d['equipment'] == eq]
-                        if not df_eq.empty:
-                            if 'created_at' in df_eq.columns:
-                                df_eq = df_eq.sort_values(by='created_at')
-                            
-                            pure_prods = []
-                            for p in df_eq['product_name'].astype(str).tolist():
-                                clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
-                                if clean_p not in pure_prods:
-                                    pure_prods.append(clean_p)
-                                    
-                            batch_list = []
-                            for b in df_eq['batch_no'].astype(str).tolist():
-                                if "(세팅)" not in b:
-                                    clean_b = b.strip()
-                                    batch_list.append(clean_b)
+            # 1. 예외 휴무일 불러오기
+            holiday_res = supabase.table("production_holidays").select("*").execute()
+            holiday_dict = {item['holiday_date']: item['reason'] for item in holiday_res.data} if holiday_res.data else {}
+            holiday_dates = set(holiday_dict.keys())
 
-                            row_data[f"{eq}_제품명"] = ", ".join(pure_prods) if pure_prods else "-"
-                            row_data[f"{eq}_제조번호"] = ", ".join(batch_list) if batch_list else "-"
-                            row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
+            # 2. 등록된 생산 일정 불러오기
+            all_data_res = supabase.table("production_schedule").select("*").order("target_date").order("created_at").execute()
+            raw_data = all_data_res.data if all_data_res.data else []
+            df_raw = pd.DataFrame(raw_data)
+
+            # 3. 캘린더 전체 날짜 범위 설정 (오늘부터 2027년 4월 30일까지, 단 기존 일정이 더 이른 날짜부터 시작하면 그 날짜부터 포함)
+            min_date = pd.to_datetime(datetime.today().strftime('%Y-%m-%d'))
+            if not df_raw.empty:
+                data_min_date = pd.to_datetime(df_raw['target_date'].min())
+                if data_min_date < min_date:
+                    min_date = data_min_date
+            
+            # 종료일은 2027년 4월 30일로 고정 (또는 등록된 일정의 최대일이 그보다 뒤라면 최대일 기준)
+            max_date = pd.to_datetime('2027-04-30')
+            if not df_raw.empty:
+                data_max_date = pd.to_datetime(df_raw['target_date'].max())
+                if data_max_date > max_date:
+                    max_date = data_max_date
+
+            date_range = pd.date_range(start=min_date, end=max_date)
+            
+            pivot_rows = []
+            for single_date in date_range:
+                d_str = single_date.strftime('%Y-%m-%d')
+                w_idx = single_date.weekday() # 0:월 ~ 6:일
+                w_str = days[w_idx]
+                
+                # 휴무일 여부 판정 (일요일이거나 휴무일 테이블에 등록된 날짜)
+                is_off = (w_idx == 6) or (d_str in holiday_dates)
+                off_reason = holiday_dict.get(d_str, "일요일 휴무" if w_idx == 6 else "")
+
+                # 스타일 적용을 위한 HTML 태그 (휴무일이면 빨간색)
+                if is_off:
+                    display_date = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
+                    display_weekday = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
+                else:
+                    display_date = d_str
+                    display_weekday = w_str
+
+                row_data = {
+                    '날짜': display_date,
+                    '요일': display_weekday
+                }
+
+                # 해당 날짜의 장비별 데이터 매핑
+                for eq in equipments:
+                    if not df_raw.empty:
+                        df_eq = df_raw[(df_raw['target_date'] == d_str) & (df_raw['equipment'] == eq)]
+                    else:
+                        df_eq = pd.DataFrame()
+
+                    if not df_eq.empty:
+                        if 'created_at' in df_eq.columns:
+                            df_eq = df_eq.sort_values(by='created_at')
+                        
+                        pure_prods = []
+                        for p in df_eq['product_name'].astype(str).tolist():
+                            clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
+                            if clean_p not in pure_prods:
+                                pure_prods.append(clean_p)
+                                
+                        batch_list = []
+                        for b in df_eq['batch_no'].astype(str).tolist():
+                            if "(세팅)" not in b:
+                                clean_b = b.strip()
+                                batch_list.append(clean_b)
+
+                        row_data[f"{eq}_제품명"] = ", ".join(pure_prods) if pure_prods else "-"
+                        row_data[f"{eq}_제조번호"] = ", ".join(batch_list) if batch_list else "-"
+                        row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
+                    else:
+                        if is_off and off_reason:
+                            row_data[f"{eq}_제품명"] = f"<span style='color:gray;'>[{off_reason}]</span>"
                         else:
                             row_data[f"{eq}_제품명"] = "-"
-                            row_data[f"{eq}_제조번호"] = "-"
-                            row_data[f"{eq}_소요시간(h)"] = 0
-                            
-                    pivot_rows.append(row_data)
-                    
-                df_matrix = pd.DataFrame(pivot_rows)
-                
-                ordered_cols = ['날짜', '요일', 
-                                '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
-                                '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
-                                '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
-                
-                final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
-                
-                table_height = max(200, len(df_matrix) * 35 + 40)
-                st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
-                
-                if st.button("🗑️ 전체 일정 초기화"):
-                    supabase.table("production_schedule").delete().neq("id", 0).execute()
-                    st.rerun()
-            else:
-                st.info("등록된 일정이 없습니다.")
+                        row_data[f"{eq}_제조번호"] = "-"
+                        row_data[f"{eq}_소요시간(h)"] = 0
+
+                pivot_rows.append(row_data)
+
+            df_matrix = pd.DataFrame(pivot_rows)
+
+            ordered_cols = ['날짜', '요일', 
+                            '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
+                            '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
+                            '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
+
+            final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
+
+            table_height = max(300, len(df_matrix) * 35 + 40)
+            st.markdown(df_matrix[final_display_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️ 전체 일정 초기화"):
+                supabase.table("production_schedule").delete().neq("id", 0).execute()
+                st.rerun()
         except Exception as e:
             st.warning(f"데이터를 불러오는 중 오류 발생: {e}")
 
@@ -278,7 +317,7 @@ with tab2:
     
     with st.form("delete_form"):
         del_equipment = st.selectbox("대상 장비 선택", equipments, key="del_eq")
-        target_product = st.text_input("삭제 기준 제품명 입력", placeholder="예: 드록틴30")
+        target_product = st.text_input("삭제 기준 제품명 입력", placeholder="예: 드록틴캡슐30")
         target_batch = st.text_input("삭제 기준 제조번호 입력", placeholder="예: 26005")
         
         submitted_del = st.form_submit_button("🔥 해당 제품/로트 이후 일정 삭제 실행", type="primary")
