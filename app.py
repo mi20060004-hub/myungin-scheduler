@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (본 생산 제조번호만 표시)")
-st.markdown("제품명은 통합하고, **제조번호 칸에는 (세팅) 번호를 제외한 순수 본 생산 제조번호만** 나열되는 현황표입니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (제품명 선택 시 소요시간 자동 연동)")
+st.markdown("등록된 제품명을 선택하면 기준 소요시간이 자동으로 입력되며, 본 생산 제조번호만 깔끔하게 표시되는 현황표를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -15,6 +15,17 @@ try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception:
     supabase = None
+
+# [신규] 자주 사용하는 제품별 표준 소요시간 사전 정의 (원하는 품목을 추가/수정하실 수 있습니다)
+DEFAULT_PRODUCT_HOURS = {
+    "드록틴30": 15.0,
+    "드록틴60": 20.0,
+    "이가탄": 12.0,
+    "뉴멘타민16": 18.0,
+    "뉴멘타민24": 22.0,
+    "슈퍼피린": 14.0,
+    "직접 입력 (신규 품목)": 10.0
+}
 
 # 사이드바: 장비별 요일 가용 시간 동적 설정
 st.sidebar.header("⚙️ 장비별 요일 근무 시간 설정")
@@ -46,22 +57,35 @@ with tab1:
         col_eq, col_prd = st.columns(2)
         with col_eq:
             equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
-            product_name = st.text_input("제품명", placeholder="예: 드록틴30")
+            
+            # [핵심] 제품명을 셀렉트박스(스크롤 선택)로 변경
+            selected_product_option = st.selectbox("제품명 선택", list(DEFAULT_PRODUCT_HOURS.keys()))
+            
+            # '직접 입력'을 선택한 경우에만 텍스트 박스로 상세 입력받음
+            if selected_product_option == "직접 입력 (신규 품목)":
+                product_name = st.text_input("신규 제품명 직접 입력", placeholder="예: 신규약품")
+            else:
+                product_name = selected_product_option
+
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
             
-        col_time1, col_time2 = st.columns(2)
+            # 선택한 제품에 매칭되는 기본 소요시간을 자동으로 불러와서 기본값으로 세팅
+            preset_hours = DEFAULT_PRODUCT_HOURS.get(selected_product_option, 15.0)
+            total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=float(preset_hours), step=1.0)
+            
+        col_time1, _ = st.columns(2)
         with col_time1:
             setup_hours = st.number_input("장비 세팅 시간 (시간)", min_value=0.0, max_value=24.0, value=1.0, step=0.5, help="품목 변경 시 필요한 준비/세팅 시간")
-        with col_time2:
-            total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=15.0, step=1.0)
             
         start_date = st.date_input("시작 예정일", value=datetime.today())
         submitted = st.form_submit_button("🚀 일정 자동 계산 및 DB 저장")
 
     if submitted:
-        if not product_name or not batch_no:
-            st.error("제품명과 제조번호를 모두 입력해주세요.")
+        if selected_product_option == "직접 입력 (신규 품목)" and not product_name:
+            st.error("신규 제품명을 입력해주세요.")
+        elif not batch_no:
+            st.error("제조번호를 입력해주세요.")
         elif not supabase:
             st.error("Supabase 연결 정보를 확인해주세요.")
         else:
@@ -178,14 +202,12 @@ with tab1:
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            # 1. 제품명: 순수 본품명만 추출하고 중복 제거하여 통합 표시
                             pure_prods = []
                             for p in df_eq['product_name'].astype(str).tolist():
                                 clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
                                 if clean_p not in pure_prods:
                                     pure_prods.append(clean_p)
                                     
-                            # 2. 제조번호: '(세팅)' 글자가 포함된 항목은 아예 제외하고, 순수 본 생산 제조번호들만 나열
                             batch_list = []
                             for b in df_eq['batch_no'].astype(str).tolist():
                                 if "(세팅)" not in b:
