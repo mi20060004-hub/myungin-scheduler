@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (제조번호 개별 매칭 표시)")
-st.markdown("제품명은 깔끔하게 통합하고, **제조번호는 각 품목별로 1:1 대응되어 빠짐없이 모두 나열되는 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (본 생산 제조번호만 표시)")
+st.markdown("제품명은 통합하고, **제조번호 칸에는 (세팅) 번호를 제외한 순수 본 생산 제조번호만** 나열되는 현황표입니다.")
 
 # Supabase 연동 설정
 try:
@@ -178,21 +178,22 @@ with tab1:
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            # 1. 제품명: 순수 본품명만 추출하되 순서를 유지하며 중복 제거 (예: 뉴멘타민24, 뉴멘타민16, 슈퍼피린)
+                            # 1. 제품명: 순수 본품명만 추출하고 중복 제거하여 통합 표시
                             pure_prods = []
                             for p in df_eq['product_name'].astype(str).tolist():
                                 clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
                                 if clean_p not in pure_prods:
                                     pure_prods.append(clean_p)
                                     
-                            # 2. 제조번호: 세팅 문구만 제거하고, 동일한 로트 번호라도 각 블록별 매칭에 따라 모두 나열 (예: 26002, 26002, 26012)
+                            # 2. 제조번호: '(세팅)' 글자가 포함된 항목은 아예 제외하고, 순수 본 생산 제조번호들만 나열
                             batch_list = []
                             for b in df_eq['batch_no'].astype(str).tolist():
-                                clean_b = b.replace("(세팅)", "").strip()
-                                batch_list.append(clean_b)
+                                if "(세팅)" not in b:
+                                    clean_b = b.strip()
+                                    batch_list.append(clean_b)
 
-                            row_data[f"{eq}_제품명"] = ", ".join(pure_prods)
-                            row_data[f"{eq}_제조번호"] = ", ".join(batch_list)
+                            row_data[f"{eq}_제품명"] = ", ".join(pure_prods) if pure_prods else "-"
+                            row_data[f"{eq}_제조번호"] = ", ".join(batch_list) if batch_list else "-"
                             row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
                         else:
                             row_data[f"{eq}_제품명"] = "-"
