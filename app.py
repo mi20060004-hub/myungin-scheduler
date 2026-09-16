@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (장비 세팅 시간 포함)")
-st.markdown("장비별 근무 시간, 예외 휴무일, **품목 변경 시 세팅(전환) 시간**, 그리고 특정 품목 이후 삭제 기능을 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (셀 내 줄바꿈 적용)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **셀 안에서 줄바꿈된 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -46,7 +46,7 @@ with tab1:
         col_eq, col_prd = st.columns(2)
         with col_eq:
             equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
-            product_name = st.text_input("제품명", placeholder="예: 둘록세틴 장용정")
+            product_name = st.text_input("제품명", placeholder="예: 드록틴30")
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
             
@@ -73,12 +73,11 @@ with tab1:
 
             work_hours_rule = EQUIPMENT_WORK_HOURS.get(equipment, {})
 
-            # 세팅 시간이 있는 경우, 첫 번째 날(또는 배정 시작일)에 세팅 시간을 먼저 할당
             remaining_hours = total_hours
             current_date = pd.to_datetime(start_date)
             allocations = []
             
-            # 1. 세팅 시간 먼저 배정 로직 처리
+            # 1. 세팅 시간 배정 로직
             remaining_setup = setup_hours
             while remaining_setup > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
@@ -113,7 +112,7 @@ with tab1:
                 if remaining_setup > 0:
                     current_date += timedelta(days=1)
             
-            # 2. 본 생산 소요 시간 배정 로직 처리
+            # 2. 본 생산 소요 시간 배정 로직
             while remaining_hours > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
                 weekday = current_date.weekday()
@@ -123,13 +122,11 @@ with tab1:
                     current_date += timedelta(days=1)
                     continue
                     
-                # 방금 세팅으로 배정된 시간도 당일 사용량에 포함하여 계산
                 used_on_day = 0
                 if not existing_schedule.empty and 'target_date' in existing_schedule.columns and 'equipment' in existing_schedule.columns:
                     day_eq_rows = existing_schedule[(existing_schedule['target_date'] == date_str) & (existing_schedule['equipment'] == equipment)]
                     used_on_day = day_eq_rows['allocated_hours'].sum()
                 
-                # 이번 실행에서 방금 추가된 allocations 중 같은 날짜의 시간도 합산
                 temp_df = pd.DataFrame(allocations)
                 if not temp_df.empty:
                     used_on_day += temp_df[temp_df['target_date'] == date_str]['allocated_hours'].sum()
@@ -155,11 +152,11 @@ with tab1:
 
             if allocations:
                 supabase.table("production_schedule").insert(allocations).execute()
-                st.success(f"✨ [{equipment}] 세팅 시간({setup_hours}h) 및 본 생산 일정이 성공적으로 배정되었습니다!")
+                st.success(f"✨ [{equipment}] 세팅 시간 및 본 생산 일정이 성공적으로 배정되었습니다!")
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (가로 배치)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (셀 내 줄바꿈 적용)")
     
     if supabase:
         try:
@@ -178,8 +175,9 @@ with tab1:
                     for eq in equipments:
                         df_eq = df_d[df_d['equipment'] == eq]
                         if not df_eq.empty:
-                            prod_list = ", ".join(df_eq['product_name'].unique())
-                            batch_list = ", ".join(df_eq['batch_no'].unique())
+                            # [핵심] 콤마 대신 줄바꿈 문자(\n)로 여러 항목을 세로로 나눔
+                            prod_list = "\n".join(df_eq['product_name'].unique())
+                            batch_list = "\n".join(df_eq['batch_no'].unique())
                             total_h = df_eq['allocated_hours'].sum()
                             
                             row_data[f"{eq}_제품명"] = prod_list
@@ -200,7 +198,9 @@ with tab1:
                                 '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
                 
                 final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
-                st.dataframe(df_matrix[final_display_cols], use_container_width=True)
+                
+                # Streamlit 표에서 줄바꿈이 셀 안에 반영되도록 스타일 적용
+                st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=400)
                 
                 if st.button("🗑️ 전체 일정 초기화"):
                     supabase.table("production_schedule").delete().neq("id", 0).execute()
