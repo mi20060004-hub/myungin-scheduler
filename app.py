@@ -7,7 +7,7 @@ import io
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 2027년 4월까지의 캘린더 현황표와 엑셀 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -59,7 +59,7 @@ DEFAULT_PRODUCT_HOURS = {
     "직접 입력 (신규 품목)": 10.0
 }
 
-# --- [사이드바] 생산계획 입력 폼 영역 (요일별 설정 위) ---
+# --- [사이드바] 생산계획 입력 폼 영역 ---
 st.sidebar.header("🚀 생산 일정 등록")
 with st.sidebar.form("schedule_form"):
     equipment = st.selectbox("장비 선택", ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"], key="reg_eq")
@@ -205,7 +205,7 @@ for eq in equipments:
 st.session_state['EQUIPMENT_WORK_HOURS'] = EQUIPMENT_WORK_HOURS
 
 # 탭 구성 (메인 화면)
-tab1, tab2, tab3 = st.tabs(["📅 생산 일정 현황 및 엑셀", "✂️ 특정 제품/로트 이후 일정 삭제", "🏖️ 예외 휴무일 관리"])
+tab1, tab2, tab3 = st.tabs(["📅 생산 일정 현황 및 다운로드", "✂️ 특정 제품/로트 이후 일정 삭제", "🏖️ 예외 휴무일 관리"])
 
 with tab1:
     st.subheader("📅 날짜별 장비 통합 생산 현황표 (2027년 4월까지 표시)")
@@ -235,7 +235,7 @@ with tab1:
             date_range = pd.date_range(start=min_date, end=max_date)
             
             pivot_rows = []
-            excel_rows = []
+            csv_rows = []
             
             for single_date in date_range:
                 d_str = single_date.strftime('%Y-%m-%d')
@@ -253,7 +253,7 @@ with tab1:
                     display_weekday = w_str
 
                 row_data = {'날짜': display_date, '요일': display_weekday}
-                excel_row = {'날짜': d_str, '요일': w_str}
+                csv_row = {'날짜': d_str, '요일': w_str}
 
                 for eq in equipments:
                     if not df_raw.empty:
@@ -285,29 +285,29 @@ with tab1:
                         row_data[f"{eq}_제조번호"] = batch_str
                         row_data[f"{eq}_소요시간(h)"] = total_h_val
                         
-                        excel_row[f"{eq}_제품명"] = prod_str
-                        excel_row[f"{eq}_제조번호"] = batch_str
-                        excel_row[f"{eq}_소요시간(h)"] = total_h_val
+                        csv_row[f"{eq}_제품명"] = prod_str
+                        csv_row[f"{eq}_제조번호"] = batch_str
+                        csv_row[f"{eq}_소요시간(h)"] = total_h_val
                     else:
                         if is_off and off_reason:
                             off_text = f"[{off_reason}]"
                             row_data[f"{eq}_제품명"] = f"<span style='color:gray;'>{off_text}</span>"
-                            excel_row[f"{eq}_제품명"] = off_text
+                            csv_row[f"{eq}_제품명"] = off_text
                         else:
                             row_data[f"{eq}_제품명"] = "-"
-                            excel_row[f"{eq}_제품명"] = "-"
+                            csv_row[f"{eq}_제품명"] = "-"
                             
                         row_data[f"{eq}_제조번호"] = "-"
                         row_data[f"{eq}_소요시간(h)"] = 0
                         
-                        excel_row[f"{eq}_제조번호"] = "-"
-                        excel_row[f"{eq}_소요시간(h)"] = 0
+                        csv_row[f"{eq}_제조번호"] = "-"
+                        csv_row[f"{eq}_소요시간(h)"] = 0
 
                 pivot_rows.append(row_data)
-                excel_rows.append(excel_row)
+                csv_rows.append(csv_row)
 
             df_matrix = pd.DataFrame(pivot_rows)
-            df_excel = pd.DataFrame(excel_rows)
+            df_csv = pd.DataFrame(csv_rows)
 
             ordered_cols = ['날짜', '요일', 
                             '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
@@ -316,18 +316,16 @@ with tab1:
 
             final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
 
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_excel[final_display_cols].to_excel(writer, index=False, sheet_name='생산일정현황')
-            excel_data = output.getvalue()
+            # CSV 다운로드 파일 변환 (추가 라이브러리 불필요)
+            csv_data = df_csv[final_display_cols].to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
             col_btn1, col_btn2 = st.columns([4, 1])
             with col_btn2:
                 st.download_button(
-                    label="📥 엑셀 다운로드",
-                    data=excel_data,
-                    file_name=f"명인제약_생산일정현황_{datetime.today().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    label="📥 파일 다운로드(CSV)",
+                    data=csv_data,
+                    file_name=f"명인제약_생산일정현황_{datetime.today().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
                 )
 
             table_height = max(300, len(df_matrix) * 35 + 40)
