@@ -56,7 +56,7 @@ DEFAULT_PRODUCT_HOURS = {
 }
 
 # 사이드바: 장비별 요일 가용 시간 동적 설정
-st.sidebar.header("⚙️ 장비별 요일 근무 시간 설정")
+st.sidebar.header("⚙️요일별 근무시간설정")
 equipments = ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"]
 days = ['월', '화', '수', '목', '금', '토', '일']
 
