@@ -35,7 +35,9 @@ for eq in equipments:
         eq_hours = {}
         defaults = default_presets[eq]
         for idx, day in enumerate(days):
-            hours = st.number_input(f"{day요일 가용 시간 (h)", min_value=0.0, max_value=24.0, value=float(defaults[idx]), step=1.0, key=f"{eq}_{day}")
+            # 문법 오류가 나던 f-string 구문 수정 완료
+            label_text = day + "요일 가용 시간 (h)"
+            hours = st.number_input(label_text, min_value=0.0, max_value=24.0, value=float(defaults[idx]), step=1.0, key=f"{eq}_{day}")
             eq_hours[idx] = hours
         EQUIPMENT_WORK_HOURS[eq] = eq_hours
 
