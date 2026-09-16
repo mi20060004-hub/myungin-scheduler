@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (제품명 통합 & 제조번호 상세 표시)")
-st.markdown("제품명은 중복 없이 깔끔하게 통합하고, 제조번호는 세팅 및 본 생산 로트별로 상세히 표시하는 현황표입니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (현황표 세로 확장)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간, 그리고 **데이터에 맞춰 아래로 길게 늘어나는 통합 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -178,15 +178,14 @@ with tab1:
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            # [핵심 로직]
-                            # 1. 제품명: '[세팅]'을 제외한 순수 본품명들만 중복 제거하여 통합 표시 (예: 드록틴30)
+                            # 제품명 통합 (중복 제거)
                             pure_prods = []
                             for p in df_eq['product_name'].astype(str).tolist():
                                 clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
                                 if clean_p not in pure_prods:
                                     pure_prods.append(clean_p)
                                     
-                            # 2. 제조번호: 세팅 로트와 본 생산 로트를 시간 순서대로 빠짐없이 모두 나열
+                            # 제조번호 상세 표시 (세팅 및 본생산 모두 나열)
                             batch_list = df_eq['batch_no'].astype(str).tolist()
 
                             row_data[f"{eq}_제품명"] = ", ".join(pure_prods)
@@ -208,7 +207,10 @@ with tab1:
                 
                 final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
                 
-                st.dataframe(df_matrix[final_display_cols], use_container_width=True)
+                # [핵심 수정] height 매개변수를 지정하지 않거나 데이터 행 수에 비례하도록 설정하여 전체 행이 아래로 길게 출력되도록 함
+                # (행 개수 * 35픽셀 정도로 동적 계산하거나 None으로 설정하면 전체 스크롤 가능)
+                table_height = max(200, len(df_matrix) * 35 + 40)
+                st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
                 
                 if st.button("🗑️ 전체 일정 초기화"):
                     supabase.table("production_schedule").delete().neq("id", 0).execute()
