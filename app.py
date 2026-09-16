@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("등록된 제품명을 선택하면 기준 소요시간 자동 입력)
+st.markdown("등록된 제품명을 선택하면 기준 소요시간 자동 입력")
 
 # Supabase 연동 설정
 try:
