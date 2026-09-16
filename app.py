@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (작업 순서 정렬 반영)")
-st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **올바른 공정 순서(생산 ➔ 세팅 ➔ 본 생산)로 정렬된 콤마 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (작업 시간순 정렬)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **실제 공정 진행 순서(세팅 ➔ 해당 본 생산)로 정렬된 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -46,7 +46,7 @@ with tab1:
         col_eq, col_prd = st.columns(2)
         with col_eq:
             equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
-            product_name = st.text_input("제품명", placeholder="예: 드록틴60")
+            product_name = st.text_input("제품명", placeholder="예: 드록틴30")
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
             
@@ -105,8 +105,7 @@ with tab1:
                     'batch_no': f"{batch_no}(세팅)",
                     'target_date': date_str,
                     'weekday': days[weekday],
-                    'allocated_hours': float(assign_setup),
-                    'sort_order': 1  # 세팅은 본 생산보다 먼저 오도록 정렬 가중치 부여
+                    'allocated_hours': float(assign_setup)
                 })
                 
                 remaining_setup -= assign_setup
@@ -144,8 +143,7 @@ with tab1:
                     'batch_no': batch_no,
                     'target_date': date_str,
                     'weekday': days[weekday],
-                    'allocated_hours': float(assign_hours),
-                    'sort_order': 2  # 본 생산은 세팅 뒤에 오도록 정렬 가중치 부여
+                    'allocated_hours': float(assign_hours)
                 })
                 
                 remaining_hours -= assign_hours
@@ -153,18 +151,16 @@ with tab1:
                     current_date += timedelta(days=1)
 
             if allocations:
-                # DB 저장 시 보조 정렬 컬럼은 제외하고 저장
-                clean_allocations = [{k: v for k, v in item.items() if k != 'sort_order'} for item in allocations]
-                supabase.table("production_schedule").insert(clean_allocations).execute()
+                supabase.table("production_schedule").insert(allocations).execute()
                 st.success(f"✨ [{equipment}] 세팅 시간 및 본 생산 일정이 성공적으로 배정되었습니다!")
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (시간 순서 정렬)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (시간순 정렬)")
     
     if supabase:
         try:
-            all_data_res = supabase.table("production_schedule").select("*").order("target_date").execute()
+            all_data_res = supabase.table("production_schedule").select("*").order("target_date").order("created_at").execute()
             if all_data_res.data:
                 df_raw = pd.DataFrame(all_data_res.data)
                 
@@ -179,20 +175,12 @@ with tab1:
                     for eq in equipments:
                         df_eq = df_d[df_d['equipment'] == eq]
                         if not df_eq.empty:
-                            # [핵심] 제품명이 '[세팅]'으로 시작하는 항목과 일반 제품을 구분하여 시간 순서대로 정렬
-                            # 제품명 기준 정렬: '[세팅]'이 포함된 항목이 본래 제품보다 먼저 오도록 처리
-                            def custom_sort(row):
-                                name = str(row['product_name'])
-                                # 세팅 항목이면 0, 일반 제품이면 1 (단, 기존에 먼저 하던 제품이 있다면 그 순서 유지)
-                                return (0 if "[세팅]" in name else 1, str(row['created_at']) if 'created_at' in row else '')
-
-                            # 데이터프레임 내부에서 임시 정렬 후 고유값 추출
-                            df_eq_sorted = df_eq.copy()
-                            df_eq_sorted['is_setting'] = df_eq_sorted['product_name'].apply(lambda x: 0 if "[세팅]" in str(x) else 1)
-                            df_eq_sorted = df_eq_sorted.sort_values(by=['target_date', 'is_setting', 'created_at'] if 'created_at' in df_eq_sorted.columns else ['target_date', 'is_setting'])
+                            # [핵심] 데이터가 등록된 시간(created_at) 순서대로 정렬하여 세팅과 본생산이 올바른 시퀀스를 유지하도록 함
+                            if 'created_at' in df_eq.columns:
+                                df_eq = df_eq.sort_values(by='created_at')
                             
-                            prod_list = ", ".join(df_eq_sorted['product_name'].unique())
-                            batch_list = ", ".join(df_eq_sorted['batch_no'].unique())
+                            prod_list = ", ".join(df_eq['product_name'].tolist())
+                            batch_list = ", ".join(df_eq['batch_no'].tolist())
                             total_h = df_eq['allocated_hours'].sum()
                             
                             row_data[f"{eq}_제품명"] = prod_list
