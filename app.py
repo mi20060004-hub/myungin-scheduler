@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (장비 세팅 시간 포함)")
-st.markdown("장비별 근무 시간, 예외 휴무일, **품목 변경 시 세팅(전환) 시간**, 그리고 특정 품목 이후 삭제 기능을 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (작업 순서 정렬 반영)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **올바른 공정 순서(생산 ➔ 세팅 ➔ 본 생산)로 정렬된 콤마 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -46,7 +46,7 @@ with tab1:
         col_eq, col_prd = st.columns(2)
         with col_eq:
             equipment = st.selectbox("장비 선택", equipments, key="reg_eq")
-            product_name = st.text_input("제품명", placeholder="예: 둘록세틴 장용정")
+            product_name = st.text_input("제품명", placeholder="예: 드록틴60")
         with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
             
@@ -73,12 +73,11 @@ with tab1:
 
             work_hours_rule = EQUIPMENT_WORK_HOURS.get(equipment, {})
 
-            # 세팅 시간이 있는 경우, 첫 번째 날(또는 배정 시작일)에 세팅 시간을 먼저 할당
             remaining_hours = total_hours
             current_date = pd.to_datetime(start_date)
             allocations = []
             
-            # 1. 세팅 시간 먼저 배정 로직 처리
+            # 1. 세팅 시간 배정 로직
             remaining_setup = setup_hours
             while remaining_setup > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
@@ -106,14 +105,15 @@ with tab1:
                     'batch_no': f"{batch_no}(세팅)",
                     'target_date': date_str,
                     'weekday': days[weekday],
-                    'allocated_hours': float(assign_setup)
+                    'allocated_hours': float(assign_setup),
+                    'sort_order': 1  # 세팅은 본 생산보다 먼저 오도록 정렬 가중치 부여
                 })
                 
                 remaining_setup -= assign_setup
                 if remaining_setup > 0:
                     current_date += timedelta(days=1)
             
-            # 2. 본 생산 소요 시간 배정 로직 처리
+            # 2. 본 생산 소요 시간 배정 로직
             while remaining_hours > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
                 weekday = current_date.weekday()
@@ -123,13 +123,11 @@ with tab1:
                     current_date += timedelta(days=1)
                     continue
                     
-                # 방금 세팅으로 배정된 시간도 당일 사용량에 포함하여 계산
                 used_on_day = 0
                 if not existing_schedule.empty and 'target_date' in existing_schedule.columns and 'equipment' in existing_schedule.columns:
                     day_eq_rows = existing_schedule[(existing_schedule['target_date'] == date_str) & (existing_schedule['equipment'] == equipment)]
                     used_on_day = day_eq_rows['allocated_hours'].sum()
                 
-                # 이번 실행에서 방금 추가된 allocations 중 같은 날짜의 시간도 합산
                 temp_df = pd.DataFrame(allocations)
                 if not temp_df.empty:
                     used_on_day += temp_df[temp_df['target_date'] == date_str]['allocated_hours'].sum()
@@ -146,7 +144,8 @@ with tab1:
                     'batch_no': batch_no,
                     'target_date': date_str,
                     'weekday': days[weekday],
-                    'allocated_hours': float(assign_hours)
+                    'allocated_hours': float(assign_hours),
+                    'sort_order': 2  # 본 생산은 세팅 뒤에 오도록 정렬 가중치 부여
                 })
                 
                 remaining_hours -= assign_hours
@@ -154,12 +153,14 @@ with tab1:
                     current_date += timedelta(days=1)
 
             if allocations:
-                supabase.table("production_schedule").insert(allocations).execute()
-                st.success(f"✨ [{equipment}] 세팅 시간({setup_hours}h) 및 본 생산 일정이 성공적으로 배정되었습니다!")
+                # DB 저장 시 보조 정렬 컬럼은 제외하고 저장
+                clean_allocations = [{k: v for k, v in item.items() if k != 'sort_order'} for item in allocations]
+                supabase.table("production_schedule").insert(clean_allocations).execute()
+                st.success(f"✨ [{equipment}] 세팅 시간 및 본 생산 일정이 성공적으로 배정되었습니다!")
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (가로 배치)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (시간 순서 정렬)")
     
     if supabase:
         try:
@@ -178,8 +179,20 @@ with tab1:
                     for eq in equipments:
                         df_eq = df_d[df_d['equipment'] == eq]
                         if not df_eq.empty:
-                            prod_list = ", ".join(df_eq['product_name'].unique())
-                            batch_list = ", ".join(df_eq['batch_no'].unique())
+                            # [핵심] 제품명이 '[세팅]'으로 시작하는 항목과 일반 제품을 구분하여 시간 순서대로 정렬
+                            # 제품명 기준 정렬: '[세팅]'이 포함된 항목이 본래 제품보다 먼저 오도록 처리
+                            def custom_sort(row):
+                                name = str(row['product_name'])
+                                # 세팅 항목이면 0, 일반 제품이면 1 (단, 기존에 먼저 하던 제품이 있다면 그 순서 유지)
+                                return (0 if "[세팅]" in name else 1, str(row['created_at']) if 'created_at' in row else '')
+
+                            # 데이터프레임 내부에서 임시 정렬 후 고유값 추출
+                            df_eq_sorted = df_eq.copy()
+                            df_eq_sorted['is_setting'] = df_eq_sorted['product_name'].apply(lambda x: 0 if "[세팅]" in str(x) else 1)
+                            df_eq_sorted = df_eq_sorted.sort_values(by=['target_date', 'is_setting', 'created_at'] if 'created_at' in df_eq_sorted.columns else ['target_date', 'is_setting'])
+                            
+                            prod_list = ", ".join(df_eq_sorted['product_name'].unique())
+                            batch_list = ", ".join(df_eq_sorted['batch_no'].unique())
                             total_h = df_eq['allocated_hours'].sum()
                             
                             row_data[f"{eq}_제품명"] = prod_list
@@ -200,6 +213,7 @@ with tab1:
                                 '세종6홀충전기_제품명', '세종6홀충전기_제조번호', '세종6홀충전기_소요시간(h)']
                 
                 final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
+                
                 st.dataframe(df_matrix[final_display_cols], use_container_width=True)
                 
                 if st.button("🗑️ 전체 일정 초기화"):
