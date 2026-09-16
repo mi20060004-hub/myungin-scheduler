@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (현황표 세로 확장)")
-st.markdown("장비별 근무 시간, 휴무일, 세팅 시간, 그리고 **데이터에 맞춰 아래로 길게 늘어나는 통합 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (순수 품명 및 제조번호 표시)")
+st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **세팅 문구 없이 순수 제품명과 제조번호만 깔끔하게 표시되는 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -77,7 +77,7 @@ with tab1:
             current_date = pd.to_datetime(start_date)
             allocations = []
             
-            # 1. 세팅 시간 배정 로직
+            # 1. 세팅 시간 배정 로직 (내부적으로는 세팅으로 기록하되 화면 표시 시 정제)
             remaining_setup = setup_hours
             while remaining_setup > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
@@ -178,18 +178,24 @@ with tab1:
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            # 제품명 통합 (중복 제거)
+                            # [핵심 수정] 제품명과 제조번호 모두 '[세팅]', '(세팅)' 문구를 완전히 제거하고 순수 품명/로트만 추출
                             pure_prods = []
-                            for p in df_eq['product_name'].astype(str).tolist():
-                                clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
+                            pure_batchs = []
+                            
+                            for _, r in df_eq.iterrows():
+                                p_name = str(r['product_name'])
+                                b_no = str(r['batch_no'])
+                                
+                                clean_p = p_name.replace("[세팅] ", "").replace("[세팅]", "").strip()
                                 if clean_p not in pure_prods:
                                     pure_prods.append(clean_p)
                                     
-                            # 제조번호 상세 표시 (세팅 및 본생산 모두 나열)
-                            batch_list = df_eq['batch_no'].astype(str).tolist()
+                                clean_b = b_no.replace("(세팅)", "").strip()
+                                if clean_b not in pure_batchs:
+                                    pure_batchs.append(clean_b)
 
                             row_data[f"{eq}_제품명"] = ", ".join(pure_prods)
-                            row_data[f"{eq}_제조번호"] = ", ".join(batch_list)
+                            row_data[f"{eq}_제조번호"] = ", ".join(pure_batchs)
                             row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
                         else:
                             row_data[f"{eq}_제품명"] = "-"
@@ -207,8 +213,6 @@ with tab1:
                 
                 final_display_cols = [c for c in ordered_cols if c in df_matrix.columns]
                 
-                # [핵심 수정] height 매개변수를 지정하지 않거나 데이터 행 수에 비례하도록 설정하여 전체 행이 아래로 길게 출력되도록 함
-                # (행 개수 * 35픽셀 정도로 동적 계산하거나 None으로 설정하면 전체 스크롤 가능)
                 table_height = max(200, len(df_matrix) * 35 + 40)
                 st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
                 
