@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 메모(note) 열 및 휴무일 행 배경 강조가 적용된 캘린더 현황표를 제공합니다.")
+st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 메모(note) 열이 추가된 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -244,15 +244,23 @@ with tab1:
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 off_reason = holiday_dict.get(d_str, "일요일 휴무" if w_idx == 6 else "")
 
-                # note 값 가져오기 (해당 날짜에 등록된 note가 있다면 추출, 없으면 빈칸)
+                # 휴무일 표시 마크
+                if is_off:
+                    display_date = f"🔴 {d_str}"
+                    display_weekday = f"🔴 {w_str}"
+                else:
+                    display_date = d_str
+                    display_weekday = w_str
+
+                # Supabase의 note 컬럼 값 가져오기 (날짜별로 매칭)
                 note_val = ""
-                if not df_raw.empty:
+                if not df_raw.empty and 'note' in df_raw.columns:
                     df_date_notes = df_raw[(df_raw['target_date'] == d_str) & (df_raw['note'].notna()) & (df_raw['note'] != "")]
                     if not df_date_notes.empty:
                         notes_list = [str(n) for n in df_date_notes['note'].unique() if str(n) != "None"]
                         note_val = ", ".join(notes_list)
 
-                row_data = {'날짜': d_str, '요일': w_str, '메모(note)': note_val}
+                row_data = {'날짜': display_date, '요일': display_weekday, '메모(note)': note_val}
                 csv_row = {'날짜': d_str, '요일': w_str, '메모(note)': note_val}
 
                 for eq in equipments:
@@ -309,7 +317,7 @@ with tab1:
             df_matrix = pd.DataFrame(pivot_rows)
             df_csv = pd.DataFrame(csv_rows)
 
-            # [수정] 날짜, 요일 다음, 보쉬충전기 제품명 왼쪽에 '메모(note)' 컬럼 배치
+            # [수정] '메모(note)' 컬럼을 날짜/요일 바로 다음, 보쉬충전기 제품명 왼쪽에 배치
             ordered_cols = ['날짜', '요일', '메모(note)',
                             '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
                             '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
@@ -328,84 +336,9 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # 휴무일 행 전체 연한 붉은색 배경 강조 및 빨간색 글씨 HTML 표 생성
-            html_rows = []
-            for idx, r in df_matrix.iterrows():
-                current_date = date_range[idx]
-                d_str = current_date.strftime('%Y-%m-%d')
-                w_idx = current_date.weekday()
-                w_str = days[w_idx]
-                is_off = (w_idx == 6) or (d_str in holiday_dates)
-                
-                row_bg_style = "background-color: #FFF5F5;" if is_off else ""
-                
-                if is_off:
-                    d_cell = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
-                    w_cell = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
-                else:
-                    d_cell = d_str
-                    w_cell = w_str
-                
-                note_val = str(r.get("메모(note)", ""))
-                
-                tds = [
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{d_cell}</td>", 
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{w_cell}</td>",
-                    f"<td style='border: 1px solid #ddd; padding: 6px;'>{note_val}</td>"
-                ]
-                
-                for eq in equipments:
-                    p_val = str(r.get(f"{eq}_제품명", "-"))
-                    b_val = str(r.get(f"{eq}_제조번호", "-"))
-                    h_val = str(r.get(f"{eq}_소요시간(h)", 0))
-                    
-                    if is_off and p_val.startswith("[") and p_val.endswith("]"):
-                        p_cell = f"<span style='color:red; font-weight:bold;'>{p_val}</span>"
-                    else:
-                        p_cell = p_val
-                        
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{p_cell}</td>")
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{b_val}</td>")
-                    tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{h_val}</td>")
-                    
-                html_rows.append(f"<tr style='{row_bg_style}'>" + "".join(tds) + "</tr>")
-                
-            table_header = """
-            <thead>
-                <tr style="background-color: #f1f3f4;">
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">날짜</th>
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center;">요일</th>
-                    <th rowspan="2" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #F8F9FA;">메모(note)</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E3F2FD;">보쉬충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #E8F5E9;">세종20홀충전기</th>
-                    <th colspan="3" style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #FFF3E0;">세종6홀충전기</th>
-                </tr>
-                <tr style="background-color: #f9f9f9;">
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E3F2FD;">소요시간(h)</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #E8F5E9;">소요시간(h)</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제품명</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">제조번호</th>
-                    <th style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #FFF3E0;">소요시간(h)</th>
-                </tr>
-            </thead>
-            """
-            
-            custom_table_html = f"""
-            <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd;">
-                <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 14px;">
-                    {table_header}
-                    <tbody>
-                        {"".join(html_rows)}
-                    </tbody>
-                </table>
-            </div>
-            """
-            
-            st.markdown(custom_table_html, unsafe_allow_html=True)
+            # Streamlit 기본 내장 dataframe 컴포넌트로 안정적인 표 출력
+            table_height = max(400, len(df_matrix) * 35 + 40)
+            st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
             
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🗑️ 전체 일정 초기화"):
