@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 및 메모를 함께 입력하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 및 개별 메모를 각각 등록하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -58,7 +58,7 @@ DEFAULT_PRODUCT_HOURS = {
     "직접 입력 (신규 품목)": 10.0
 }
 
-# --- [사이드바] 생산계획 입력 폼 영역 ---
+# --- [사이드바 1] 생산 일정 등록 폼 영역 ---
 st.sidebar.header("🚀 생산 일정 등록")
 with st.sidebar.form("schedule_form"):
     equipment = st.selectbox("장비 선택", ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"], key="reg_eq")
@@ -75,11 +75,8 @@ with st.sidebar.form("schedule_form"):
     total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=float(preset_hours), step=1.0)
     
     setup_hours = st.number_input("장비 세팅 시간 (시간)", min_value=0.0, max_value=24.0, value=1.0, step=0.5, help="품목 변경 시 준비/세팅 시간")
-    
-    # [신규 추가] 사이드바 입력창에 메모(note) 필드 추가
-    note_input = st.text_input("메모 (비고)", placeholder="예: 라인 점검 또는 특이사항")
         
-    start_date = st.date_input("시작 예정일", value=datetime.today())
+    start_date = st.date_input("시작 예정일", value=datetime.today(), key="sched_date")
     submitted = st.form_submit_button("일정 자동 계산 및 DB 저장")
 
 if submitted:
@@ -130,8 +127,7 @@ if submitted:
                 'batch_no': f"{batch_no}(세팅)",
                 'target_date': date_str,
                 'weekday': ['월','화','수','목','금','토','일'][weekday],
-                'allocated_hours': float(assign_setup),
-                'note': note_input # 메모 반영
+                'allocated_hours': float(assign_setup)
             })
             
             remaining_setup -= assign_setup
@@ -169,8 +165,7 @@ if submitted:
                 'batch_no': batch_no,
                 'target_date': date_str,
                 'weekday': ['월','화','수','목','금','토','일'][weekday],
-                'allocated_hours': float(assign_hours),
-                'note': note_input # 메모 반영
+                'allocated_hours': float(assign_hours)
             })
             
             remaining_hours -= assign_hours
@@ -181,6 +176,44 @@ if submitted:
             supabase.table("production_schedule").insert(allocations).execute()
             st.success(f"✨ [{equipment}] 세팅 및 본 생산 일정이 배정되었습니다!")
             st.rerun()
+
+st.sidebar.markdown("---")
+
+# --- [사이드바 2] 독립된 날짜별 메모(note) 등록 폼 영역 ---
+st.sidebar.header("📌 날짜별 메모 등록 (단독)")
+with st.sidebar.form("memo_form"):
+    memo_date = st.date_input("메모 지정일", value=datetime.today(), key="memo_date_input")
+    memo_text = st.text_input("메모 내용", placeholder="예: 설비 정기 점검, 원료 입고일 등")
+    submitted_memo = st.form_submit_button("📝 메모 저장하기")
+
+if submitted_memo and supabase:
+    if not memo_text:
+        st.error("메모 내용을 입력해주세요.")
+    else:
+        date_str = memo_date.strftime('%Y-%m-%d')
+        weekday_str = ['월','화','수','목','금','토','일'][memo_date.weekday()]
+        try:
+            # 해당 날짜에 이미 레코드가 있는지 확인
+            existing_res = supabase.table("production_schedule").select("*").eq("target_date", date_str).execute()
+            
+            if existing_res.data:
+                # 기존 레코드가 있으면 해당 날짜 행들의 note 값 업데이트
+                supabase.table("production_schedule").update({"note": memo_text}).eq("target_date", date_str).execute()
+            else:
+                # 기존 레코드가 없으면 가상의 빈 일정 행으로 note만 생성하여 저장
+                supabase.table("production_schedule").insert({
+                    "equipment": "보쉬충전기",
+                    "product_name": "-",
+                    "batch_no": "-",
+                    "target_date": date_str,
+                    "weekday": weekday_str,
+                    "allocated_hours": 0,
+                    "note": memo_text
+                }).execute()
+            st.success(f"✨ [{date_str}] 메모가 성공적으로 저장되었습니다!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"메모 저장 실패: {e}")
 
 st.sidebar.markdown("---")
 
@@ -260,8 +293,9 @@ with tab1:
                 if not df_raw.empty and 'note' in df_raw.columns:
                     df_date_notes = df_raw[(df_raw['target_date'] == d_str) & (df_raw['note'].notna()) & (df_raw['note'] != "")]
                     if not df_date_notes.empty:
-                        notes_list = [str(n) for n in df_date_notes['note'].unique() if str(n) != "None" and str(n) != "nan"]
-                        note_val = ", ".join(notes_list)
+                        notes_list = [str(n) for n in df_date_notes['note'].unique() if str(n) != "None" and str(n) != "nan" and str(n) != "-"]
+                        if notes_list:
+                            note_val = ", ".join(notes_list)
 
                 row_data = {'날짜': display_date, '요일': display_weekday, '메모(note)': note_val}
                 csv_row = {'날짜': d_str, '요일': w_str, '메모(note)': note_val}
@@ -279,12 +313,12 @@ with tab1:
                         pure_prods = []
                         for p in df_eq['product_name'].astype(str).tolist():
                             clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
-                            if clean_p not in pure_prods:
+                            if clean_p != "-" and clean_p not in pure_prods:
                                 pure_prods.append(clean_p)
                                 
                         batch_list = []
                         for b in df_eq['batch_no'].astype(str).tolist():
-                            if "(세팅)" not in b:
+                            if b != "-" and "(세팅)" not in b:
                                 clean_b = b.strip()
                                 batch_list.append(clean_b)
 
