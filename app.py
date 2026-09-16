@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 및 개별 메모를 각각 등록하고, 휴무일 행 배경이 붉은색으로 칠해진 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 및 개별 메모를 각각 등록하고, 휴무일 글자가 붉은색으로 강조된 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -362,7 +362,7 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # HTML 테이블 렌더링 방식으로 휴무일 행 전체 배경색(연한 붉은색) 적용
+            # HTML 테이블 렌더링 방식 (빨간원 제거, 휴무일 날짜·요일·휴무사유 글자색 붉은색 적용)
             html_rows = []
             for idx, r in df_matrix.iterrows():
                 current_date = date_range[idx]
@@ -371,10 +371,7 @@ with tab1:
                 w_str = days[w_idx]
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 
-                # 휴무일인 경우 행 전체 배경색 칠하기
-                row_bg_style = "background-color: #FFF0F0;" if is_off else ""
-                
-                # 날짜 및 요일 텍스트 스타일 (휴무일이면 붉은색 글씨)
+                # 날짜 및 요일 텍스트 스타일 (휴무일이면 붉은색 글씨, 빨간원 없음)
                 if is_off:
                     d_cell = f"<span style='color:red; font-weight:bold;'>{d_str}</span>"
                     w_cell = f"<span style='color:red; font-weight:bold;'>{w_str}</span>"
@@ -404,7 +401,7 @@ with tab1:
                     tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{b_val}</td>")
                     tds.append(f"<td style='border: 1px solid #ddd; padding: 6px;'>{h_val}</td>")
                     
-                html_rows.append(f"<tr style='{row_bg_style}'>" + "".join(tds) + "</tr>")
+                html_rows.append("<tr>" + "".join(tds) + "</tr>")
                 
             table_header = """
             <thead>
