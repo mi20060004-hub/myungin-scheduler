@@ -242,7 +242,7 @@ st.session_state['EQUIPMENT_WORK_HOURS'] = EQUIPMENT_WORK_HOURS
 tab1, tab2, tab3 = st.tabs(["📅 생산 일정 현황 및 다운로드", "✂️ 특정 제품/로트 이후 일정 삭제", "🏖️ 예외 휴무일 관리"])
 
 with tab1:
-    st.subheader("📅 날짜별 장비 통합 생산 현황표 (2027년 4월까지 표시)")
+    st.subheader("📅 날짜별 장비 통합 생산 현황표 (2027년 3월까지 표시)")
     
     if supabase:
         try:
@@ -260,7 +260,7 @@ with tab1:
                 if data_min_date < min_date:
                     min_date = data_min_date
             
-            max_date = pd.to_datetime('2027-04-30')
+            max_date = pd.to_datetime('2027-03-31')
             if not df_raw.empty:
                 data_max_date = pd.to_datetime(df_raw['target_date'].max())
                 if data_max_date > max_date:
