@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 자동 배정 시스템 (휴무일 예외 처리 포함)")
-st.markdown("월~목(10시간), 금(8시간), 토(5시간) 근무 규칙 및 **지정된 예외 휴무일(명절, 회사 휴가 등)**을 반영하여 일정을 자동 배정합니다.")
+st.title("🏭 생산 일정 자동 배정 시스템 (다중 장비 통합 관리)")
+st.markdown("장비별(보쉬충전기, 세종20홀충전기, 세종6홀충전기)로 근무 시간 규칙 및 예외 휴무일을 반영하여 일정을 자동 배정합니다.")
 
 # Supabase 연동 설정
 try:
@@ -26,19 +26,19 @@ WORK_HOURS = {
     6: 0    # 일 (휴무)
 }
 
-# --- [탭 분리] 1. 일정 등록 / 2. 예외 휴무일 관리 ---
-tab1, tab2 = st.tabs(["📅 생산 일정 등록 및 조회", "🏖️ 예외 휴무일(명절/휴가) 관리"])
+tab1, tab2 = st.tabs(["📅 생산 일정 등록 및 통합 현황", "🏖️ 예외 휴무일(명절/휴가) 관리"])
 
 with tab1:
     with st.form("schedule_form"):
-        col1, col2 = st.columns(2)
-        with col1:
+        col_eq, col_prd = st.columns(2)
+        with col_eq:
+            equipment = st.selectbox("장비 선택", ["보쉬충전기", "세종20홀충전기", "세종6홀충전기"])
             product_name = st.text_input("제품명", placeholder="예: 둘록세틴 장용정")
+        with col_prd:
             batch_no = st.text_input("제조번호", placeholder="예: 26001")
-        with col2:
             total_hours = st.number_input("총 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=15.0, step=1.0)
-            start_date = st.date_input("시작 예정일", value=datetime.today())
             
+        start_date = st.date_input("시작 예정일", value=datetime.today())
         submitted = st.form_submit_button("🚀 일정 자동 계산 및 DB 저장")
 
     if submitted:
@@ -64,17 +64,16 @@ with tab1:
                 date_str = current_date.strftime('%Y-%m-%d')
                 weekday = current_date.weekday()
                 
-                # [핵심] 예외 휴무일이거나 주간 가용 시간이 0인 경우(일요일 등) 건너뜀
                 daily_capacity = WORK_HOURS.get(weekday, 0)
                 if date_str in holiday_dates or daily_capacity == 0:
                     current_date += timedelta(days=1)
                     continue
                     
-                # 해당 날짜 당일 배정된 시간 계산
+                # 해당 날짜에 선택한 장비에 이미 배정된 시간 계산 (장비별로 슬롯 관리)
                 used_on_day = 0
-                if not existing_schedule.empty and 'target_date' in existing_schedule.columns:
-                    day_rows = existing_schedule[existing_schedule['target_date'] == date_str]
-                    used_on_day = day_rows['allocated_hours'].sum()
+                if not existing_schedule.empty and 'target_date' in existing_schedule.columns and 'equipment' in existing_schedule.columns:
+                    day_eq_rows = existing_schedule[(existing_schedule['target_date'] == date_str) & (existing_schedule['equipment'] == equipment)]
+                    used_on_day = day_eq_rows['allocated_hours'].sum()
                     
                 available_on_day = daily_capacity - used_on_day
                 
@@ -85,6 +84,7 @@ with tab1:
                 assign_hours = min(remaining_hours, available_on_day)
                 
                 allocations.append({
+                    'equipment': equipment,
                     'product_name': product_name,
                     'batch_no': batch_no,
                     'target_date': date_str,
@@ -98,16 +98,20 @@ with tab1:
 
             if allocations:
                 supabase.table("production_schedule").insert(allocations).execute()
-                st.success(f"✨ [{product_name} / 제조번호: {batch_no}] 일정이 휴무일을 피해 성공적으로 배정되었습니다!")
+                st.success(f"✨ [{equipment}] [{product_name} / 제조번호: {batch_no}] 일정이 성공적으로 배정되었습니다!")
                 st.dataframe(pd.DataFrame(allocations), use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📅 전체 생산 일정 현황")
+    st.subheader("📅 전체 장비 통합 생산 일정 현황")
     if supabase:
         try:
             all_data_res = supabase.table("production_schedule").select("*").order("target_date").execute()
             if all_data_res.data:
-                st.dataframe(pd.DataFrame(all_data_res.data)[['target_date', 'weekday', 'product_name', 'batch_no', 'allocated_hours']], use_container_width=True)
+                df_all = pd.DataFrame(all_data_res.data)
+                # 컬럼 순서 보기 쉽게 정렬
+                display_cols = ['equipment', 'target_date', 'weekday', 'product_name', 'batch_no', 'allocated_hours']
+                st.dataframe(df_all[[c for c in display_cols if c in df_all.columns]], use_container_width=True)
+                
                 if st.button("🗑️ 전체 일정 초기화"):
                     supabase.table("production_schedule").delete().neq("id", 0).execute()
                     st.rerun()
@@ -139,9 +143,6 @@ with tab2:
     if supabase:
         holidays_res = supabase.table("production_holidays").select("*").order("holiday_date").execute()
         if holidays_res.data:
-            df_holidays = pd.DataFrame(holidays_res.data)
-            st.dataframe(df_holidays, use_container_width=True)
-            
-            # 개별 삭제 기능 등 추가 가능
+            st.dataframe(pd.DataFrame(holidays_res.data), use_container_width=True)
         else:
             st.info("등록된 예외 휴무일이 없습니다.")
