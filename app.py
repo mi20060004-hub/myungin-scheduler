@@ -6,7 +6,7 @@ from supabase import create_client, Client
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
 st.title("🏭 캡슐제품 생산계획")
-st.markdown("사이드바에서 생산계획 입력 및 요일별 근무시간을 설정하고, 메모(note) 열이 추가된 캘린더 현황표와 파일 다운로드를 제공합니다.")
+st.markdown("사이드바에서 생산계획 및 메모를 함께 입력하고, 2027년 4월까지의 캘린더 현황표와 파일 다운로드를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -75,6 +75,9 @@ with st.sidebar.form("schedule_form"):
     total_hours = st.number_input("총 생산 소요 시간 (시간)", min_value=1.0, max_value=200.0, value=float(preset_hours), step=1.0)
     
     setup_hours = st.number_input("장비 세팅 시간 (시간)", min_value=0.0, max_value=24.0, value=1.0, step=0.5, help="품목 변경 시 준비/세팅 시간")
+    
+    # [신규 추가] 사이드바 입력창에 메모(note) 필드 추가
+    note_input = st.text_input("메모 (비고)", placeholder="예: 라인 점검 또는 특이사항")
         
     start_date = st.date_input("시작 예정일", value=datetime.today())
     submitted = st.form_submit_button("일정 자동 계산 및 DB 저장")
@@ -127,7 +130,8 @@ if submitted:
                 'batch_no': f"{batch_no}(세팅)",
                 'target_date': date_str,
                 'weekday': ['월','화','수','목','금','토','일'][weekday],
-                'allocated_hours': float(assign_setup)
+                'allocated_hours': float(assign_setup),
+                'note': note_input # 메모 반영
             })
             
             remaining_setup -= assign_setup
@@ -165,7 +169,8 @@ if submitted:
                 'batch_no': batch_no,
                 'target_date': date_str,
                 'weekday': ['월','화','수','목','금','토','일'][weekday],
-                'allocated_hours': float(assign_hours)
+                'allocated_hours': float(assign_hours),
+                'note': note_input # 메모 반영
             })
             
             remaining_hours -= assign_hours
@@ -244,7 +249,6 @@ with tab1:
                 is_off = (w_idx == 6) or (d_str in holiday_dates)
                 off_reason = holiday_dict.get(d_str, "일요일 휴무" if w_idx == 6 else "")
 
-                # 휴무일 표시 마크
                 if is_off:
                     display_date = f"🔴 {d_str}"
                     display_weekday = f"🔴 {w_str}"
@@ -252,12 +256,11 @@ with tab1:
                     display_date = d_str
                     display_weekday = w_str
 
-                # Supabase의 note 컬럼 값 가져오기 (날짜별로 매칭)
                 note_val = ""
                 if not df_raw.empty and 'note' in df_raw.columns:
                     df_date_notes = df_raw[(df_raw['target_date'] == d_str) & (df_raw['note'].notna()) & (df_raw['note'] != "")]
                     if not df_date_notes.empty:
-                        notes_list = [str(n) for n in df_date_notes['note'].unique() if str(n) != "None"]
+                        notes_list = [str(n) for n in df_date_notes['note'].unique() if str(n) != "None" and str(n) != "nan"]
                         note_val = ", ".join(notes_list)
 
                 row_data = {'날짜': display_date, '요일': display_weekday, '메모(note)': note_val}
@@ -317,7 +320,6 @@ with tab1:
             df_matrix = pd.DataFrame(pivot_rows)
             df_csv = pd.DataFrame(csv_rows)
 
-            # [수정] '메모(note)' 컬럼을 날짜/요일 바로 다음, 보쉬충전기 제품명 왼쪽에 배치
             ordered_cols = ['날짜', '요일', '메모(note)',
                             '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_소요시간(h)',
                             '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_소요시간(h)',
@@ -336,7 +338,6 @@ with tab1:
                     mime="text/csv"
                 )
 
-            # Streamlit 기본 내장 dataframe 컴포넌트로 안정적인 표 출력
             table_height = max(400, len(df_matrix) * 35 + 40)
             st.dataframe(df_matrix[final_display_cols], use_container_width=True, height=table_height)
             
