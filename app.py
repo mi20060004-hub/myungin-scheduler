@@ -5,8 +5,8 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="명인제약 생산 일정 관리", layout="wide")
 
-st.title("🏭 생산 일정 통합 매트릭스 (순수 품명 및 제조번호 표시)")
-st.markdown("장비별 근무 시간, 휴무일, 세팅 시간 및 **세팅 문구 없이 순수 제품명과 제조번호만 깔끔하게 표시되는 현황표**를 제공합니다.")
+st.title("🏭 생산 일정 통합 매트릭스 (제조번호 개별 매칭 표시)")
+st.markdown("제품명은 깔끔하게 통합하고, **제조번호는 각 품목별로 1:1 대응되어 빠짐없이 모두 나열되는 현황표**를 제공합니다.")
 
 # Supabase 연동 설정
 try:
@@ -77,7 +77,7 @@ with tab1:
             current_date = pd.to_datetime(start_date)
             allocations = []
             
-            # 1. 세팅 시간 배정 로직 (내부적으로는 세팅으로 기록하되 화면 표시 시 정제)
+            # 1. 세팅 시간 배정 로직
             remaining_setup = setup_hours
             while remaining_setup > 0:
                 date_str = current_date.strftime('%Y-%m-%d')
@@ -178,24 +178,21 @@ with tab1:
                             if 'created_at' in df_eq.columns:
                                 df_eq = df_eq.sort_values(by='created_at')
                             
-                            # [핵심 수정] 제품명과 제조번호 모두 '[세팅]', '(세팅)' 문구를 완전히 제거하고 순수 품명/로트만 추출
+                            # 1. 제품명: 순수 본품명만 추출하되 순서를 유지하며 중복 제거 (예: 뉴멘타민24, 뉴멘타민16, 슈퍼피린)
                             pure_prods = []
-                            pure_batchs = []
-                            
-                            for _, r in df_eq.iterrows():
-                                p_name = str(r['product_name'])
-                                b_no = str(r['batch_no'])
-                                
-                                clean_p = p_name.replace("[세팅] ", "").replace("[세팅]", "").strip()
+                            for p in df_eq['product_name'].astype(str).tolist():
+                                clean_p = p.replace("[세팅] ", "").replace("[세팅]", "").strip()
                                 if clean_p not in pure_prods:
                                     pure_prods.append(clean_p)
                                     
-                                clean_b = b_no.replace("(세팅)", "").strip()
-                                if clean_b not in pure_batchs:
-                                    pure_batchs.append(clean_b)
+                            # 2. 제조번호: 세팅 문구만 제거하고, 동일한 로트 번호라도 각 블록별 매칭에 따라 모두 나열 (예: 26002, 26002, 26012)
+                            batch_list = []
+                            for b in df_eq['batch_no'].astype(str).tolist():
+                                clean_b = b.replace("(세팅)", "").strip()
+                                batch_list.append(clean_b)
 
                             row_data[f"{eq}_제품명"] = ", ".join(pure_prods)
-                            row_data[f"{eq}_제조번호"] = ", ".join(pure_batchs)
+                            row_data[f"{eq}_제조번호"] = ", ".join(batch_list)
                             row_data[f"{eq}_소요시간(h)"] = df_eq['allocated_hours'].sum()
                         else:
                             row_data[f"{eq}_제품명"] = "-"
