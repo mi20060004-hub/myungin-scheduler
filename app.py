@@ -323,7 +323,6 @@ with tab1:
                         batch_str = ", ".join(batch_list) if batch_list else "-"
                         total_h_val = df_eq['allocated_hours'].sum()
 
-                        # 컬럼명을 짧게 변경 (예: 보쉬충전기_제품명 -> 제품명 등)
                         row_data[f"{eq}_제품명"] = prod_str
                         row_data[f"{eq}_제조번호"] = batch_str
                         row_data[f"{eq}_시간"] = total_h_val
@@ -352,7 +351,7 @@ with tab1:
             df_matrix = pd.DataFrame(pivot_rows)
             df_csv = pd.DataFrame(csv_rows)
 
-            # 짧아진 컬럼명 규칙으로 순서 재배치
+            # 짧아진 컬럼명 규칙 매핑
             ordered_cols = ['날짜', '요일', '메모',
                             '보쉬충전기_제품명', '보쉬충전기_제조번호', '보쉬충전기_시간',
                             '세종20홀충전기_제품명', '세종20홀충전기_제조번호', '세종20홀충전기_시간',
